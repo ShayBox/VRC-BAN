@@ -49,7 +49,7 @@ pub async fn leaderboard(
         offset += 100;
     }
 
-    let mut count_by_actor_id = logs
+    let count_by_actor = logs
         .iter()
         .filter(|&log| log.event_type == "group.user.ban" || log.event_type == "group.user.unban")
         .cloned()
@@ -78,11 +78,10 @@ pub async fn leaderboard(
             // Count filtered logs per actor_id
             *map.entry(log.actor_id).or_insert(0) += 1;
             map
-        })
-        .into_iter()
-        .collect::<Vec<_>>();
+        });
 
-    count_by_actor_id.sort_by(|(_, count1), (_, count2)| count2.cmp(count1));
+    let mut count_by_actor_sorted = count_by_actor.clone().into_iter().collect::<Vec<_>>();
+    count_by_actor_sorted.sort_by(|(_, count1), (_, count2)| count2.cmp(count1));
 
     Ok(html!(
         (DOCTYPE)
@@ -116,7 +115,7 @@ pub async fn leaderboard(
                         }
 
                         tbody class="table-group-divider" {
-                            @for (i, (actor_id, count)) in count_by_actor_id.iter().enumerate() {
+                            @for (i, (actor_id, count)) in count_by_actor_sorted.iter().enumerate() {
                                 @let query = User{ id: actor_id.clone() };
                                 @let user = vrchat.query(query).await.map_err(bad_request)?;
                                 @let name = &user.as_user().base.display_name;
@@ -126,6 +125,15 @@ pub async fn leaderboard(
                                     td class="text-center" { (name) }
                                     td class="text-center" { (count) }
                                 }
+                            }
+                        }
+
+                        tbody class="table-group-divider" {
+                            tr {
+                                @let total = count_by_actor.values().sum::<usize>();
+                                th class="text-center" scope="row" { "" }
+                                td class="text-center" { "" }
+                                td class="text-center" { (total) }
                             }
                         }
                     }
