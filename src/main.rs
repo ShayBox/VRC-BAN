@@ -7,7 +7,7 @@ use std::clone::Clone;
 
 use config::{eyre::Result, ConfigFile};
 use reqwest::Client;
-use vrc_ban::{login, Config, DEFAULT_USER_AGENT};
+use vrc_ban::{login_to_vrchat, Config, DEFAULT_USER_AGENT};
 
 use crate::route::prelude::*;
 
@@ -20,7 +20,7 @@ async fn main() -> Result<()> {
         .map_or_else(|| DEFAULT_USER_AGENT.to_owned(), Clone::clone);
 
     let client = Client::builder().user_agent(&user_agent).build()?;
-    let vrchat = login(&mut config, user_agent).await?;
+    let vrchat = login_to_vrchat(&mut config, user_agent).await?;
     let rocket = rocket::build()
         .manage(config)
         .manage(client)

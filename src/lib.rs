@@ -28,7 +28,14 @@ pub struct Config {
 /// # Login to `VRChat` (`vrc_rs`)
 ///
 /// # Errors
-pub async fn login(config: &mut Config, user_agent: String) -> Result<AuthenticatedVRC> {
+pub async fn login_to_vrchat(config: &mut Config, user_agent: String) -> Result<AuthenticatedVRC> {
+    // Attempt to login using saved session if available
+    if let Some(authentication) = config.authentication.clone() {
+        if let Ok(vrchat) = AuthenticatedVRC::new(user_agent.clone(), authentication) {
+            return Ok(vrchat);
+        }
+    }
+
     // Fall back to obtaining a new session with USER/PASS/TOTP
     let vrc = UnauthenticatedVRC::new(user_agent, config.authenticating.clone())?;
     let (login_response, token) = vrc.login().await?;
@@ -41,7 +48,7 @@ pub async fn login(config: &mut Config, user_agent: String) -> Result<Authentica
     config.authentication = Some(authentication.clone());
     config.save()?;
 
-    let vrchat = vrc.upgrade(authentication.clone())?;
+    let mut vrchat = vrc.upgrade(authentication.clone())?;
 
     if login_response
         .requires_additional_auth
@@ -54,13 +61,15 @@ pub async fn login(config: &mut Config, user_agent: String) -> Result<Authentica
 
         // Verify the TOTP with VRChat
         let second_factor = VerifySecondFactor::Code(code);
-        let (status, second_factor_token) = vrchat.verify_second_factor(second_factor).await?;
-        if status.verified {
-            // Save the session for re-use later
-            authentication.second_factor_token = Some(second_factor_token);
-            config.authentication = Some(authentication.clone());
-            config.save()?;
-        }
+        let (_, second_factor_token) = vrchat.verify_second_factor(second_factor).await?;
+
+        // Save the session for re-use later
+        authentication.second_factor_token = Some(second_factor_token);
+        config.authentication = Some(authentication.clone());
+        config.save()?;
+
+        // Apply the new second factor token
+        vrchat = vrchat.recreate(authentication.clone())?;
     }
 
     Ok(vrchat)

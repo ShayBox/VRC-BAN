@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use cached::proc_macro::once;
+use chrono::Utc;
 use maud::{html, Markup, DOCTYPE};
 use rocket::{response::status::BadRequest, State};
 use vrc::{
@@ -83,6 +84,8 @@ pub async fn leaderboard(
     let mut count_by_actor_sorted = count_by_actor.clone().into_iter().collect::<Vec<_>>();
     count_by_actor_sorted.sort_by(|(_, count1), (_, count2)| count2.cmp(count1));
 
+    let now = Utc::now();
+
     Ok(html!(
         (DOCTYPE)
 
@@ -145,6 +148,7 @@ pub async fn leaderboard(
                         }
                     }
 
+                    p id="time" { (now.to_rfc3339()) }
                     p { "Updates every 12 hours" }
                 }
 
@@ -153,6 +157,12 @@ pub async fn leaderboard(
                 }
 
                 script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" {}
+                script {"
+                    const time = document.getElementById('time');
+                    const date = new Date(time.textContent);
+                    const text = date.toLocaleString('en-US', { hour: 'numeric', minute: 'numeric', hour12: true });
+                    time.textContent = `Last Updated ${text}`;
+                "}
             }
         }
     ))
