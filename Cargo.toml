@@ -1,0 +1,19 @@
+[package]
+name = "vrc-ban"
+version = "0.0.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cached = { version = "0.48", features = ["async"] }
+config = { git = "https://github.com/ShayBox/Config.git", features = ["toml"] }
+maud = { version = "0.26", features = ["rocket"] }
+rocket = { version = "0.5", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+totp = { version = "5", package = "totp-rs" }
+vrc = { git = "https://github.com/Shays-Forks/vrc_rs.git", features = ["api_client"] }
+
+[lints.clippy]
+pedantic = "warn"
+nursery = "warn"
