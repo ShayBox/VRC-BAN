@@ -97,20 +97,21 @@ pub async fn leaderboard(
                 link rel="stylesheet" href="http://fonts.googleapis.com/css?family=Dosis";
             }
 
-            body style="font-family: Dosis" {
+            body class="text-center" style="font-family: Dosis" {
                 header class="position-absolute top-0 start-50 translate-middle-x" {
-                    h1 class="text-center" { "The Stoner Booth" }
-                    h2 class="text-center" { "Staff Leaderboard" }
-
+                    h1 { "The Stoner Booth" }
+                    h2 { "Staff Leaderboard" }
                 }
 
                 main class="position-absolute top-50 start-50 translate-middle" {
+                    a href="https://discord.shaybox.com" { "Join the Discord" }
+
                     table class="table table-striped table-bordered" {
                         thead {
                             tr {
-                                th class="text-center" scope="col" { "#" }
-                                th class="text-center" scope="col" { "Display Name" }
-                                th class="text-center" scope="col" { "Bans" }
+                                th scope="col" { "#" }
+                                th scope="col" { "Display Name" }
+                                th scope="col" { "Bans" }
                             }
                         }
 
@@ -119,11 +120,17 @@ pub async fn leaderboard(
                                 @let query = User{ id: actor_id.clone() };
                                 @let user = vrchat.query(query).await.map_err(bad_request)?;
                                 @let name = &user.as_user().base.display_name;
+                                @let color = match i {
+                                    0 => "text-danger",
+                                    1 => "text-warning",
+                                    2 => "text-success",
+                                    _ => "text-primary",
+                                };
 
                                 tr {
-                                    th class="text-center" scope="row" { (i + 1) }
-                                    td class="text-center" { (name) }
-                                    td class="text-center" { (count) }
+                                    th class=(color) scope="row" { (i + 1) }
+                                    td class=(color) { (name) }
+                                    td class=(color) { (count) }
                                 }
                             }
                         }
@@ -131,14 +138,14 @@ pub async fn leaderboard(
                         tbody class="table-group-divider" {
                             tr {
                                 @let total = count_by_actor.values().sum::<usize>();
-                                th class="text-center" scope="row" { "" }
-                                td class="text-center" { "" }
-                                td class="text-center" { (total) }
+                                th scope="row" { "#" }
+                                td { "Total" }
+                                td { (total) }
                             }
                         }
                     }
 
-                    p class="text-center" { "Updates every 12 hours" }
+                    p { "Updates every 12 hours" }
                 }
 
                 footer class="position-absolute bottom-0 start-50 translate-middle-x" {
