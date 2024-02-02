@@ -3,16 +3,27 @@ extern crate rocket;
 
 pub mod route;
 
-use crate::route::prelude::*;
+use std::clone::Clone;
+
 use config::{eyre::Result, ConfigFile};
-use vrc_ban::{login, Config};
+use reqwest::Client;
+use vrc_ban::{login, Config, DEFAULT_USER_AGENT};
+
+use crate::route::prelude::*;
 
 #[rocket::main]
 async fn main() -> Result<()> {
     let mut config = Config::load()?;
-    let vrchat = login(&mut config).await?;
+    let user_agent = config
+        .vrc_user_agent
+        .as_ref()
+        .map_or_else(|| DEFAULT_USER_AGENT.to_owned(), Clone::clone);
+
+    let client = Client::builder().user_agent(&user_agent).build()?;
+    let vrchat = login(&mut config, user_agent).await?;
     let rocket = rocket::build()
         .manage(config)
+        .manage(client)
         .manage(vrchat)
         .mount("/", routes![root, favicon, leaderboard]);
 

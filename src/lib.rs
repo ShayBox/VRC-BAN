@@ -26,22 +26,11 @@ pub struct Config {
 }
 
 /// # Login to `VRChat` (`vrc_rs`)
-pub async fn login(config: &mut Config) -> Result<AuthenticatedVRC> {
-    // Fall back to the default user agent if one wasn't provided
-    let user_agent = match &config.vrc_user_agent {
-        Some(user_agent) => user_agent.clone(),
-        None => DEFAULT_USER_AGENT.to_owned(),
-    };
-
-    // Attempt to login using saved session if available
-    if let Some(authentication) = config.authentication.clone() {
-        if let Ok(vrchat) = AuthenticatedVRC::new(user_agent.clone(), authentication) {
-            return Ok(vrchat);
-        }
-    }
-
+///
+/// # Errors
+pub async fn login(config: &mut Config, user_agent: String) -> Result<AuthenticatedVRC> {
     // Fall back to obtaining a new session with USER/PASS/TOTP
-    let vrc = UnauthenticatedVRC::new(user_agent.clone(), config.authenticating.clone())?;
+    let vrc = UnauthenticatedVRC::new(user_agent, config.authenticating.clone())?;
     let (login_response, token) = vrc.login().await?;
     let mut authentication = Authentication {
         token,

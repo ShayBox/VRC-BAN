@@ -1,6 +1,6 @@
 [package]
 name = "vrc-ban"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,10 +9,16 @@ edition = "2021"
 cached = { version = "0.48", features = ["async"] }
 config = { git = "https://github.com/ShayBox/Config.git", features = ["toml"] }
 maud = { version = "0.26", features = ["rocket"] }
+reqwest = { version = "0.11", features = ["json"], default-features = false }
 rocket = { version = "0.5", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 totp = { version = "5", package = "totp-rs" }
 vrc = { git = "https://github.com/Shays-Forks/vrc_rs.git", features = ["api_client"] }
+
+[features]
+default = ["rustls-tls"]
+native-tls = ["reqwest/native-tls"]
+rustls-tls = ["reqwest/rustls-tls"]
 
 [lints.clippy]
 pedantic = "warn"

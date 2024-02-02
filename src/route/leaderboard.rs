@@ -12,6 +12,7 @@ use vrc::{
 
 use crate::Config;
 
+#[allow(clippy::needless_pass_by_value)]
 fn bad_request(error: ApiError) -> BadRequest<String> {
     BadRequest(error.to_string())
 }
