@@ -107,7 +107,7 @@ pub async fn leaderboard(
                 }
 
                 main class="position-absolute top-50 start-50 translate-middle" {
-                    a href="https://discord.shaybox.com" { "Join the Discord" }
+                    a href="https://discord.shaybox.com" { "Got banned and aren't a child? Join the Discord" }
 
                     table class="table table-striped table-bordered" {
                         thead {
@@ -123,17 +123,17 @@ pub async fn leaderboard(
                                 @let query = User{ id: actor_id.clone() };
                                 @let user = vrchat.query(query).await.map_err(bad_request)?;
                                 @let name = &user.as_user().base.display_name;
-                                @let color = match i {
-                                    0 => "text-danger",
-                                    1 => "text-warning",
-                                    2 => "text-success",
-                                    _ => "text-primary",
+                                @let style = match i {
+                                    0 => "color: #d6af36; font-weight: bold",
+                                    1 => "color: #a77044; font-weight: bold",
+                                    2 => "color: #a7a7ad; font-weight: bold",
+                                    _ => "color: grey",
                                 };
 
                                 tr {
-                                    th class=(color) scope="row" { (i + 1) }
-                                    td class=(color) { (name) }
-                                    td class=(color) { (count) }
+                                    th style=(style) scope="row" { (i + 1) }
+                                    td style=(style) { (name) }
+                                    td style=(style) { (count) }
                                 }
                             }
                         }
@@ -148,8 +148,8 @@ pub async fn leaderboard(
                         }
                     }
 
-                    p id="time" { (now.to_rfc3339()) }
-                    p { "Updates every 12 hours" }
+                    p id="last" { (now.to_rfc3339()) }
+                    p id="next" { "Updates every 12 hours" }
                 }
 
                 footer class="position-absolute bottom-0 start-50 translate-middle-x" {
@@ -158,10 +158,21 @@ pub async fn leaderboard(
 
                 script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" {}
                 script {"
-                    const time = document.getElementById('time');
-                    const date = new Date(time.textContent);
-                    const text = date.toLocaleString('en-US', { hour: 'numeric', minute: 'numeric', hour12: true });
-                    time.textContent = `Last Updated ${text}`;
+                    const last = document.getElementById('last');
+                    const next = document.getElementById('next');
+
+                    const lastMs = new Date() - new Date(last.textContent);
+                    const lastHrs = Math.floor((lastMs % 86400000) / 3600000);
+                    const lastMins = Math.round(((lastMs % 86400000) % 3600000) / 60000);
+                    const lastHours = lastHrs != 0 ? `${lastHrs}h ` : '';
+                    
+                    const nextMs = 12 * 60 * 60 * 1000 - lastMs;
+                    const nextHrs = Math.floor((nextMs % 86400000) / 3600000);
+                    const nextMins = Math.round(((nextMs % 86400000) % 3600000) / 60000);
+                    const nextHours = nextHrs != 0 ? `${nextHrs}h ` : '';
+
+                    last.innerHTML = `Last Update ${lastHours}${lastMins}m ago`;
+                    next.innerHTML = `Next Update ${nextHours}${nextMins}m`;
                 "}
             }
         }
