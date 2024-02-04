@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use cached::proc_macro::once;
 use chrono::Utc;
-use maud::{html, Markup, DOCTYPE};
+use maud::{html, Markup, PreEscaped, DOCTYPE};
 use rocket::{response::status::BadRequest, State};
 use vrc::{
     api_client::{ApiClient, ApiError, AuthenticatedVRC},
@@ -24,7 +24,7 @@ fn bad_request(error: ApiError) -> BadRequest<String> {
 ///
 /// # Panics
 #[get("/leaderboard")]
-#[once(time = 43_200, result = true, sync_writes = true)]
+#[once(time = 28_800, result = true, sync_writes = true)]
 pub async fn leaderboard(
     config: &State<Config>,
     vrchat: &State<AuthenticatedVRC>,
@@ -43,7 +43,7 @@ pub async fn leaderboard(
 
         logs.extend(audit_logs.results);
 
-        if logs.len() >= audit_logs.total_count {
+        if logs.len() >= audit_logs.total_count as usize {
             break;
         }
 
@@ -75,7 +75,7 @@ pub async fn leaderboard(
             }
         })
         .flatten()
-        .fold(HashMap::<UserID, usize>::new(), |mut map, log| {
+        .fold(HashMap::<UserID, u32>::new(), |mut map, log| {
             // Count filtered logs per actor_id
             *map.entry(log.actor_id).or_insert(0) += 1;
             map
@@ -113,13 +113,16 @@ pub async fn leaderboard(
                         thead {
                             tr {
                                 th scope="col" { "#" }
+                                th scope="col" { "%" }
                                 th scope="col" { "Display Name" }
                                 th scope="col" { "Bans" }
                             }
                         }
 
                         tbody class="table-group-divider" {
-                            @for (i, (actor_id, count)) in count_by_actor_sorted.iter().enumerate() {
+                            @let total = count_by_actor.values().sum::<u32>();
+                            @for (i, (actor_id, count)) in count_by_actor_sorted.into_iter().enumerate() {
+                                @let percent = (f64::from(count) / f64::from(total)) * 100.0;
                                 @let query = User{ id: actor_id.clone() };
                                 @let user = vrchat.query(query).await.map_err(bad_request)?;
                                 @let name = &user.as_user().base.display_name;
@@ -132,6 +135,7 @@ pub async fn leaderboard(
 
                                 tr {
                                     th style=(style) scope="row" { (i + 1) }
+                                    td style=(style) { (format!("{percent:.1}")) }
                                     td style=(style) { (name) }
                                     td style=(style) { (count) }
                                 }
@@ -140,8 +144,8 @@ pub async fn leaderboard(
 
                         tbody class="table-group-divider" {
                             tr {
-                                @let total = count_by_actor.values().sum::<usize>();
                                 th scope="row" { "#" }
+                                td { "100.0" }
                                 td { "Total" }
                                 td { (total) }
                             }
@@ -149,7 +153,7 @@ pub async fn leaderboard(
                     }
 
                     p id="last" { (now.to_rfc3339()) }
-                    p id="next" { "Updates every 12 hours" }
+                    p id="next" { "Updates every 8 hours" }
                 }
 
                 footer class="position-absolute bottom-0 start-50 translate-middle-x" {
@@ -157,23 +161,32 @@ pub async fn leaderboard(
                 }
 
                 script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" {}
-                script {"
+                script {(PreEscaped("
                     const last = document.getElementById('last');
                     const next = document.getElementById('next');
+                    const date = new Date(last.textContent);
+                    const loop = () => {
+                        const lastMs = new Date() - date;
+                        const lastHrs = Math.floor((lastMs % 86400000) / 3600000);
+                        const lastMins = Math.round(((lastMs % 86400000) % 3600000) / 60000);
+                        const lastHours = lastHrs > 0 ? `${lastHrs}h ` : '';
 
-                    const lastMs = new Date() - new Date(last.textContent);
-                    const lastHrs = Math.floor((lastMs % 86400000) / 3600000);
-                    const lastMins = Math.round(((lastMs % 86400000) % 3600000) / 60000);
-                    const lastHours = lastHrs != 0 ? `${lastHrs}h ` : '';
-                    
-                    const nextMs = 12 * 60 * 60 * 1000 - lastMs;
-                    const nextHrs = Math.floor((nextMs % 86400000) / 3600000);
-                    const nextMins = Math.round(((nextMs % 86400000) % 3600000) / 60000);
-                    const nextHours = nextHrs != 0 ? `${nextHrs}h ` : '';
+                        const nextMs = 8 * 60 * 60 * 1000 - lastMs;
+                        const nextHrs = Math.floor((nextMs % 86400000) / 3600000);
+                        const nextMins = Math.round(((nextMs % 86400000) % 3600000) / 60000);
+                        const nextHours = nextHrs > 0 ? `${nextHrs}h ` : '';
 
-                    last.innerHTML = `Last Update ${lastHours}${lastMins}m ago`;
-                    next.innerHTML = `Next Update ${nextHours}${nextMins}m`;
-                "}
+                        last.innerHTML = `Last Update ${lastHours}${lastMins}m ago`;
+                        next.innerHTML = `Next Update ${nextHours}${nextMins}m`;
+
+                        if (nextMs <= 0) {
+                            location.reload();
+                        }
+                    };
+
+                    setInterval(loop, 1000 * 60);
+                    loop();
+                "))}
             }
         }
     ))
