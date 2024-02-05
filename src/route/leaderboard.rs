@@ -2,7 +2,7 @@ use cached::proc_macro::once;
 use chrono::Utc;
 use indexmap::IndexMap;
 use maud::{html, Markup, PreEscaped, DOCTYPE};
-use rocket::{response::status::BadRequest, State};
+use rocket::{response::status::BadRequest, time::OffsetDateTime, State};
 use vrc::{
     api_client::{ApiClient, ApiError, AuthenticatedVRC},
     query::{GroupAuditLogs, User},
@@ -50,7 +50,6 @@ pub async fn leaderboard(
     }
 
     let mut logs_by_actor_id = IndexMap::new();
-
     for log in logs {
         match log.event_type.as_ref() {
             "group.user.ban" => {
@@ -66,6 +65,11 @@ pub async fn leaderboard(
             }
             _ => continue,
         }
+    }
+
+    let mut new_logs_by_actor_id = logs_by_actor_id.clone();
+    for logs in new_logs_by_actor_id.values_mut() {
+        logs.retain(|log| (OffsetDateTime::now_utc() - log.created_at).whole_hours() <= 24);
     }
 
     logs_by_actor_id.sort_by(|_, logs1, _, logs2| logs2.len().cmp(&logs1.len()));
@@ -101,12 +105,15 @@ pub async fn leaderboard(
                                 th scope="col" { "%" }
                                 th scope="col" { "Display Name" }
                                 th scope="col" { "Bans" }
+                                th scope="col" { "24h" }
                             }
                         }
 
                         tbody class="table-group-divider" {
                             @let total = logs_by_actor_id.values().flatten().count() as u32;
+                            @let diffs = new_logs_by_actor_id.values().flatten().count() as u32;
                             @for (i, (actor_id, logs)) in logs_by_actor_id.into_iter().enumerate() {
+                                @let diff = new_logs_by_actor_id.get(&actor_id).map_or(0, Vec::len);
                                 @let bans = logs.len() as u32;
                                 @let percent = (f64::from(bans) / f64::from(total)) * 100.0;
                                 @let query = User{ id: actor_id.clone() };
@@ -124,6 +131,7 @@ pub async fn leaderboard(
                                     td style=(style) { (format!("{percent:.1}")) }
                                     td style=(style) { (name) }
                                     td style=(style) { (bans) }
+                                    td style=(style) { (diff) }
                                 }
                             }
                         }
@@ -134,6 +142,7 @@ pub async fn leaderboard(
                                 td { "100.0" }
                                 td { "Total" }
                                 td { (total) }
+                                td { (diffs) }
                             }
                         }
                     }

@@ -2501,8 +2501,8 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "vrc"
-version = "0.2.0"
-source = "git+https://github.com/Shays-Forks/vrc_rs.git#06822082bc92f68d40557b984d73ddfc847aad3e"
+version = "0.3.0"
+source = "git+https://github.com/Shays-Forks/vrc_rs.git#eceb2ca11bed3e56a2b724a39794269c580ad5d5"
 dependencies = [
  "async-trait",
  "base64",
@@ -2521,7 +2521,7 @@ dependencies = [
 
 [[package]]
 name = "vrc-ban"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "cached",
  "chrono",
