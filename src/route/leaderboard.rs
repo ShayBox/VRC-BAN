@@ -1,13 +1,10 @@
-use std::collections::HashMap;
-
 use cached::proc_macro::once;
 use chrono::Utc;
+use indexmap::IndexMap;
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 use rocket::{response::status::BadRequest, State};
 use vrc::{
     api_client::{ApiClient, ApiError, AuthenticatedVRC},
-    id::User as UserID,
-    model::GroupAuditLog,
     query::{GroupAuditLogs, User},
 };
 
@@ -24,68 +21,56 @@ fn bad_request(error: ApiError) -> BadRequest<String> {
 ///
 /// # Panics
 #[get("/leaderboard")]
-#[once(time = 28_800, result = true, sync_writes = true)]
+#[once(time = 14_400, result = true, sync_writes = true)]
 pub async fn leaderboard(
     config: &State<Config>,
     vrchat: &State<AuthenticatedVRC>,
 ) -> Result<Markup, BadRequest<String>> {
-    let mut offset = 0;
     let mut logs = Vec::new();
+    let mut query = GroupAuditLogs {
+        id:     config.group_id_audit.clone(),
+        n:      Some(100),
+        offset: Some(0),
+    };
 
     loop {
-        let query = GroupAuditLogs {
-            id:     config.group_id_audit.clone(),
-            n:      Some(100),
-            offset: Some(offset),
-        };
-
-        let audit_logs = vrchat.query(query).await.map_err(bad_request)?;
+        let audit_logs = vrchat.query(query.clone()).await.map_err(bad_request)?;
+        if audit_logs.results.is_empty() {
+            break; // total_count % 100 || logs.len !>= total_count
+        }
 
         logs.extend(audit_logs.results);
-
         if logs.len() >= audit_logs.total_count as usize {
             break;
         }
 
-        offset += 100;
+        if let Some(offset) = query.offset {
+            query.offset = Some(offset + 100);
+        }
     }
 
-    let count_by_actor = logs
-        .iter()
-        .filter(|&log| log.event_type == "group.user.ban" || log.event_type == "group.user.unban")
-        .cloned()
-        .fold(
-            // Group logs by actor and target IDs
-            HashMap::<(UserID, Option<UserID>), Vec<GroupAuditLog>>::new(),
-            |mut map, log| {
-                let key = (log.actor_id.clone(), log.target_id.clone());
-                map.entry(key).or_default().push(log);
-                map
-            },
-        )
-        .into_iter()
-        .filter_map(|(_, logs)| {
-            // Filter out groups that have both "ban" and "unban" events
-            if logs.iter().any(|log| log.event_type == "group.user.ban")
-                && logs.iter().any(|log| log.event_type == "group.user.unban")
-            {
-                None
-            } else {
-                Some(logs)
+    let mut logs_by_actor_id = IndexMap::new();
+
+    for log in logs {
+        match log.event_type.as_ref() {
+            "group.user.ban" => {
+                logs_by_actor_id
+                    .entry(log.actor_id.clone())
+                    .or_insert(Vec::new())
+                    .push(log);
             }
-        })
-        .flatten()
-        .fold(HashMap::<UserID, u32>::new(), |mut map, log| {
-            // Count filtered logs per actor_id
-            *map.entry(log.actor_id).or_insert(0) += 1;
-            map
-        });
+            "group.user.unban" => {
+                if let Some(logs) = logs_by_actor_id.get_mut(&log.actor_id) {
+                    logs.retain(|log1| log1.target_id != log.target_id);
+                }
+            }
+            _ => continue,
+        }
+    }
 
-    let mut count_by_actor_sorted = count_by_actor.clone().into_iter().collect::<Vec<_>>();
-    count_by_actor_sorted.sort_by(|(_, count1), (_, count2)| count2.cmp(count1));
+    logs_by_actor_id.sort_by(|_, logs1, _, logs2| logs2.len().cmp(&logs1.len()));
 
-    let now = Utc::now();
-
+    #[allow(clippy::cast_possible_truncation)]
     Ok(html!(
         (DOCTYPE)
 
@@ -120,9 +105,10 @@ pub async fn leaderboard(
                         }
 
                         tbody class="table-group-divider" {
-                            @let total = count_by_actor.values().sum::<u32>();
-                            @for (i, (actor_id, count)) in count_by_actor_sorted.into_iter().enumerate() {
-                                @let percent = (f64::from(count) / f64::from(total)) * 100.0;
+                            @let total = logs_by_actor_id.values().flatten().count() as u32;
+                            @for (i, (actor_id, logs)) in logs_by_actor_id.into_iter().enumerate() {
+                                @let bans = logs.len() as u32;
+                                @let percent = (f64::from(bans) / f64::from(total)) * 100.0;
                                 @let query = User{ id: actor_id.clone() };
                                 @let user = vrchat.query(query).await.map_err(bad_request)?;
                                 @let name = &user.as_user().base.display_name;
@@ -137,7 +123,7 @@ pub async fn leaderboard(
                                     th style=(style) scope="row" { (i + 1) }
                                     td style=(style) { (format!("{percent:.1}")) }
                                     td style=(style) { (name) }
-                                    td style=(style) { (count) }
+                                    td style=(style) { (bans) }
                                 }
                             }
                         }
@@ -152,8 +138,8 @@ pub async fn leaderboard(
                         }
                     }
 
-                    p id="last" { (now.to_rfc3339()) }
-                    p id="next" { "Updates every 8 hours" }
+                    p id="last" { (Utc::now().to_rfc3339()) }
+                    p id="next" { "Updates every 4 hours" }
                 }
 
                 footer class="position-absolute bottom-0 start-50 translate-middle-x" {
@@ -171,7 +157,7 @@ pub async fn leaderboard(
                         const lastMins = Math.round(((lastMs % 86400000) % 3600000) / 60000);
                         const lastHours = lastHrs > 0 ? `${lastHrs}h ` : '';
 
-                        const nextMs = 8 * 60 * 60 * 1000 - lastMs;
+                        const nextMs = 14400 * 1000 - lastMs;
                         const nextHrs = Math.floor((nextMs % 86400000) / 3600000);
                         const nextMins = Math.round(((nextMs % 86400000) % 3600000) / 60000);
                         const nextHours = nextHrs > 0 ? `${nextHrs}h ` : '';
