@@ -1,3 +1,3 @@
 # VRC-BAN
 
-The Stoner Booth Leaderboard
+[The Stoner Booth's Ban Leaderboard](https://shay.loan/leaderboard)

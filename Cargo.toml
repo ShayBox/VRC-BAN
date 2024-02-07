@@ -1,6 +1,6 @@
 [package]
 name = "vrc-ban"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Shayne Hartford <shaybox@shaybox.com>"]
 edition = "2021"
 
@@ -9,7 +9,8 @@ edition = "2021"
 [dependencies]
 cached = { version = "0.48", features = ["async"] }
 chrono = { version = "0.4", features = ["serde"] }
-config = { git = "https://github.com/ShayBox/Config.git", features = ["toml"] }
+color-eyre = { version = "0.6", features = ["issue-url"] }
+derive-config = { version = "2", features = ["toml"] }
 indexmap = { version = "2", features = ["rayon"] }
 maud = { version = "0.26", features = ["rocket"] }
 reqwest = { version = "0.11", features = ["json"], default-features = false }

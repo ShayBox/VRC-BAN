@@ -4,16 +4,12 @@ use indexmap::IndexMap;
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 use rocket::{response::status::BadRequest, time::OffsetDateTime, State};
 use vrc::{
-    api_client::{ApiClient, ApiError, AuthenticatedVRC},
+    api_client::ApiClient,
     query::{GroupAuditLogs, User},
 };
+use vrc_ban::{bad_request, login_to_vrchat};
 
 use crate::Config;
-
-#[allow(clippy::needless_pass_by_value)]
-fn bad_request(error: ApiError) -> BadRequest<String> {
-    BadRequest(error.to_string())
-}
 
 /// # Leaderboard
 ///
@@ -22,10 +18,11 @@ fn bad_request(error: ApiError) -> BadRequest<String> {
 /// # Panics
 #[get("/leaderboard")]
 #[once(time = 14_400, result = true, sync_writes = true)]
-pub async fn leaderboard(
-    config: &State<Config>,
-    vrchat: &State<AuthenticatedVRC>,
-) -> Result<Markup, BadRequest<String>> {
+pub async fn leaderboard(config: &State<Config>) -> Result<Markup, BadRequest<String>> {
+    let vrchat = login_to_vrchat(&mut config.inner().clone())
+        .await
+        .map_err(bad_request)?;
+
     let mut logs = Vec::new();
     let mut query = GroupAuditLogs {
         id:     config.group_id_audit.clone(),
@@ -82,6 +79,13 @@ pub async fn leaderboard(
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
+
+                meta property="og:title" content="Leaderboard";
+                meta property="og:type" content="website";
+                meta property="og:url" content="https://shay.loan/leaderboard";
+                meta property="og:image" content="https://socialify.git.ci/ShayBox/VRC-BAN/png";
+                meta property="og:width" content="1280";
+                meta property="og:height" content="640";
 
                 title { "Leaderboard | The Stoner Booth" }
 

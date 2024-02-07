@@ -1,4 +1,8 @@
-use config::{eyre::Result, ConfigFile};
+use std::fmt::Display;
+
+use color_eyre::Result;
+use derive_config::DeriveTomlConfig;
+use rocket::response::status::BadRequest;
 use serde::{Deserialize, Serialize};
 use totp::{Algorithm, Secret, TOTP};
 use vrc::{
@@ -8,27 +12,36 @@ use vrc::{
     query::{Authenticating, Authentication, VerifySecondFactor},
 };
 
-pub const DEFAULT_USER_AGENT: &str = concat!(
-    env!("CARGO_PKG_NAME"),
-    "/",
-    env!("CARGO_PKG_VERSION"),
-    " ",
-    env!("CARGO_PKG_AUTHORS"),
-);
+pub fn bad_request<E: Display>(error: E) -> BadRequest<String> {
+    BadRequest(error.to_string())
+}
 
-#[derive(Clone, ConfigFile, Debug, Deserialize, Serialize)]
+#[must_use]
+pub fn default_user_agent() -> String {
+    format!(
+        "{}/{} {}",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION"),
+        env!("CARGO_PKG_AUTHORS")
+    )
+}
+
+#[derive(Clone, Debug, DeriveTomlConfig, Deserialize, Serialize)]
 pub struct Config {
+    #[serde(default = "default_user_agent")]
+    pub vrc_user_agent: String,
+    pub totp_2f_secret: String,
+    pub group_id_audit: Group,
     pub authenticating: Authenticating,
     pub authentication: Option<Authentication>,
-    pub group_id_audit: Group,
-    pub totp_2f_secret: String,
-    pub vrc_user_agent: Option<String>,
 }
 
 /// # Login to `VRChat` (`vrc_rs`)
 ///
 /// # Errors
-pub async fn login_to_vrchat(config: &mut Config, user_agent: String) -> Result<AuthenticatedVRC> {
+pub async fn login_to_vrchat(config: &mut Config) -> Result<AuthenticatedVRC> {
+    let user_agent = config.vrc_user_agent.clone();
+
     // Attempt to login using saved session if available
     if let Some(authentication) = config.authentication.clone() {
         if let Ok(vrchat) = AuthenticatedVRC::new(user_agent.clone(), authentication) {
