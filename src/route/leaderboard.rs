@@ -7,7 +7,6 @@ use vrc::{
     api_client::ApiClient,
     query::{GroupAuditLogs, User},
 };
-use vrc_ban::{bad_request, login_to_vrchat};
 
 use crate::Config;
 
@@ -19,9 +18,9 @@ use crate::Config;
 #[get("/leaderboard")]
 #[once(time = 14_400, result = true, sync_writes = true)]
 pub async fn leaderboard(config: &State<Config>) -> Result<Markup, BadRequest<String>> {
-    let vrchat = login_to_vrchat(&mut config.inner().clone())
+    let vrchat = crate::vrchat::login(&mut config.inner().clone())
         .await
-        .map_err(bad_request)?;
+        .map_err(crate::bad_request)?;
 
     let mut logs = Vec::new();
     let mut query = GroupAuditLogs {
@@ -31,7 +30,10 @@ pub async fn leaderboard(config: &State<Config>) -> Result<Markup, BadRequest<St
     };
 
     loop {
-        let audit_logs = vrchat.query(query.clone()).await.map_err(bad_request)?;
+        let audit_logs = vrchat
+            .query(query.clone())
+            .await
+            .map_err(crate::bad_request)?;
         if audit_logs.results.is_empty() {
             break; // total_count % 100 || logs.len !>= total_count
         }
@@ -121,7 +123,7 @@ pub async fn leaderboard(config: &State<Config>) -> Result<Markup, BadRequest<St
                                 @let bans = logs.len() as u32;
                                 @let percent = (f64::from(bans) / f64::from(total)) * 100.0;
                                 @let query = User{ id: actor_id.clone() };
-                                @let user = vrchat.query(query).await.map_err(bad_request)?;
+                                @let user = vrchat.query(query).await.map_err(crate::bad_request)?;
                                 @let name = &user.as_user().base.display_name;
                                 @let style = match i {
                                     0 => "color: #d6af36; font-weight: bold",
