@@ -1,15 +1,16 @@
 #[macro_use]
 extern crate rocket;
 
-use std::fmt::Display;
+use std::{collections::HashSet, fmt::Display};
 
 use color_eyre::Result;
-use derive_config::DeriveTomlConfig;
+use derive_config::{DeriveJsonConfig, DeriveTomlConfig};
 use rocket::response::status::BadRequest;
 use serde::{Deserialize, Serialize};
 use vrc::{
     api_client::AuthenticatedVRC,
     id::Group,
+    model::GroupAuditLog,
     query::{Authenticating, Authentication},
 };
 
@@ -31,10 +32,13 @@ pub fn default_user_agent() -> String {
     )
 }
 
+#[derive(Clone, Debug, Default, DeriveJsonConfig, Deserialize, Serialize)]
+pub struct AuditLogs(HashSet<GroupAuditLog>);
+
 #[derive(Clone, Debug, DeriveTomlConfig, Deserialize, Serialize)]
 pub struct Config {
     #[serde(default = "default_user_agent")]
-    pub vrc_user_agent: String,
+    pub user_agent:     String,
     pub totp_2f_secret: String,
     pub discord_client: String,
     pub group_id_audit: Group,

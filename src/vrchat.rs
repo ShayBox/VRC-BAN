@@ -13,7 +13,7 @@ use crate::Config;
 ///
 /// # Errors
 pub async fn login(config: &mut Config) -> Result<AuthenticatedVRC> {
-    let user_agent = config.vrc_user_agent.clone();
+    let user_agent = config.user_agent.clone();
 
     // Attempt to login using saved session if available
     if let Some(authentication) = config.authentication.clone() {

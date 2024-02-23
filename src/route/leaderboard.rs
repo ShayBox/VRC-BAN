@@ -1,14 +1,15 @@
 use cached::proc_macro::once;
 use chrono::Utc;
+use derive_config::DeriveJsonConfig;
 use indexmap::IndexMap;
 use maud::{html, Markup, PreEscaped, DOCTYPE};
-use rocket::{response::status::BadRequest, time::OffsetDateTime, State};
+use rocket::{response::status::BadRequest, time::OffsetDateTime, tokio::sync::Mutex, State};
 use vrc::{
-    api_client::ApiClient,
+    api_client::{ApiClient, AuthenticatedVRC},
     query::{GroupAuditLogs, User},
 };
 
-use crate::Config;
+use crate::{AuditLogs, Config};
 
 /// # Leaderboard
 ///
@@ -17,36 +18,44 @@ use crate::Config;
 /// # Panics
 #[get("/leaderboard")]
 #[once(time = 14_400, result = true, sync_writes = true)]
-pub async fn leaderboard(config: &State<Config>) -> Result<Markup, BadRequest<String>> {
-    let vrchat = crate::vrchat::login(&mut config.inner().clone())
-        .await
-        .map_err(crate::bad_request)?;
+pub async fn leaderboard(
+    config: &State<Config>,
+    audits: &State<Mutex<AuditLogs>>,
+    vrchat: &State<AuthenticatedVRC>,
+) -> Result<Markup, BadRequest<String>> {
+    let logs = {
+        let mut audits = audits.lock().await;
+        let mut query = GroupAuditLogs {
+            id:     config.group_id_audit.clone(),
+            n:      Some(100),
+            offset: Some(0),
+        };
 
-    let mut logs = Vec::new();
-    let mut query = GroupAuditLogs {
-        id:     config.group_id_audit.clone(),
-        n:      Some(100),
-        offset: Some(0),
+        loop {
+            let audit_logs = vrchat
+                .query(query.clone())
+                .await
+                .map_err(crate::bad_request)?;
+
+            if audit_logs.results.is_empty() {
+                break; // total_count % 100
+            }
+
+            let len = audits.0.len();
+            audits.0.extend(audit_logs.results);
+
+            if !audit_logs.has_next || audits.0.len() == len {
+                break; // Last page or no unique entries
+            }
+
+            if let Some(offset) = query.offset {
+                query.offset = Some(offset + 100);
+            }
+        }
+
+        audits.save().map_err(crate::bad_request)?;
+        audits.0.clone()
     };
-
-    loop {
-        let audit_logs = vrchat
-            .query(query.clone())
-            .await
-            .map_err(crate::bad_request)?;
-        if audit_logs.results.is_empty() {
-            break; // total_count % 100 || logs.len !>= total_count
-        }
-
-        logs.extend(audit_logs.results);
-        if logs.len() >= audit_logs.total_count as usize {
-            break;
-        }
-
-        if let Some(offset) = query.offset {
-            query.offset = Some(offset + 100);
-        }
-    }
 
     let mut logs_by_actor_id = IndexMap::new();
     for log in logs {
