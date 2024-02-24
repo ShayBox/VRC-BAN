@@ -8,12 +8,13 @@ use poise::{
 };
 use vrc::{
     api_client::ApiClient,
-    query::{GroupBan, GroupUnban, SearchUser},
+    query::{GroupBan, GroupMember, GroupUnban, SearchUser},
 };
 
 use crate::Data;
 
 /// Manage a VRChat user
+#[allow(clippy::too_many_lines)]
 #[poise::command(slash_command, track_edits, required_permissions = "BAN_MEMBERS")]
 pub async fn user(
     ctx: Context<'_, Data, Report>,
@@ -25,24 +26,56 @@ pub async fn user(
         ..Default::default()
     };
 
+    // Send loading message to edit in a loop for pagination
     let embed = CreateEmbed::default().title("⏳");
     let builder = CreateReply::default().embed(embed).ephemeral(true);
     let reply = ctx.send(builder).await?;
 
-    let mut i = 0;
+    // Loop over all returned users and let the user perform actions
     let users = vrchat.query(query).await?;
-
+    let mut i = 0;
     'submit: loop {
-        let mut buttons = vec![
-            CreateButton::new("ban")
-                .emoji('🔨')
-                .label("Ban")
-                .style(ButtonStyle::Danger),
-            CreateButton::new("pardon")
-                .emoji('⚖')
-                .label("Pardon")
-                .style(ButtonStyle::Success),
-        ];
+        let user = &users[i];
+        let query = GroupMember {
+            group_id: config.group_id_audit.clone(),
+            user_id:  user.id.clone(),
+        };
+
+        let mut buttons = Vec::new();
+        let mut embed = CreateEmbed::default()
+            .title(&user.display_name)
+            .url(format!("https://vrchat.com/home/user/{}", user.id))
+            .description(&user.bio)
+            .thumbnail(user.current_avatar_thumbnail_image_url.as_str())
+            .footer(CreateEmbedFooter::new("VRC-BAN").icon_url("https://cdn.discordapp.com/avatars/1208696990284914719/ab66b12988c0b0ba0e70405abe8089b6"))
+            .timestamp(Timestamp::now()
+        );
+
+        if let Some(member) = vrchat.query(query).await? {
+            if let Some(banned_at) = member.banned_at {
+                embed = embed.field("Banned", banned_at, true);
+                buttons.push(
+                    CreateButton::new("pardon")
+                        .emoji('⚖')
+                        .label("Pardon")
+                        .style(ButtonStyle::Success),
+                );
+            } else {
+                buttons.push(
+                    CreateButton::new("ban")
+                        .emoji('🔨')
+                        .label("Ban")
+                        .style(ButtonStyle::Danger),
+                );
+            };
+        } else {
+            buttons.push(
+                CreateButton::new("ban")
+                    .emoji('🔨')
+                    .label("Ban")
+                    .style(ButtonStyle::Danger),
+            );
+        }
 
         if i < users.len() - 1 {
             buttons.push(
@@ -64,20 +97,13 @@ pub async fn user(
 
         buttons.reverse();
 
-        let user = &users[i];
         let builder = CreateReply::default()
             .components(vec![CreateActionRow::Buttons(buttons)])
-            .embed(CreateEmbed::default()
-                .title(&user.display_name)
-                .url(format!("https://vrchat.com/home/user/{}", user.id))
-                .description(&user.bio)
-                .thumbnail(user.current_avatar_thumbnail_image_url.as_str())
-                .footer(CreateEmbedFooter::new("VRC-BAN").icon_url("https://cdn.discordapp.com/avatars/1208696990284914719/ab66b12988c0b0ba0e70405abe8089b6"))
-                .timestamp(Timestamp::now())
-            );
+            .embed(embed);
 
         reply.edit(ctx, builder).await?;
 
+        // Capture users button input in a loop until valid input is received
         'edit: while let Some(mci) = ComponentInteractionCollector::new(ctx)
             .author_id(ctx.author().id)
             .channel_id(ctx.channel_id())
