@@ -93,12 +93,12 @@ pub async fn leaderboard(
 
                 meta property="og:title" content="Leaderboard";
                 meta property="og:type" content="website";
-                meta property="og:url" content="https://shay.loan/leaderboard";
+                meta property="og:url" content="https://stonerbooth.com/leaderboard";
                 meta property="og:image" content="https://socialify.git.ci/ShayBox/VRC-BAN/png";
                 meta property="og:width" content="1280";
                 meta property="og:height" content="640";
 
-                title { "Leaderboard | The Stoner Booth" }
+                title { "Leaderboard | Stoner Booth" }
 
                 link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css";
                 link rel="stylesheet" href="http://fonts.googleapis.com/css?family=Dosis";
@@ -106,12 +106,12 @@ pub async fn leaderboard(
 
             body class="text-center" style="font-family: Dosis" {
                 header class="position-absolute top-0 start-50 translate-middle-x" {
-                    h1 { "The Stoner Booth" }
+                    h1 { "Stoner Booth" }
                     h2 { "Staff Leaderboard" }
                 }
 
                 main class="position-absolute top-50 start-50 translate-middle" {
-                    a href="https://discord.shaybox.com" { "Got banned and aren't a child? Join the Discord" }
+                    a href="https://discord.stonerbooth.com" { "Got banned and aren't a child? Join the Discord" }
 
                     table class="table table-striped table-bordered" {
                         thead {

@@ -1,6 +1,6 @@
 [package]
 name = "vrc-ban"
-version = "0.3.2"
+version = "0.3.3"
 authors = ["Shayne Hartford <shaybox@shaybox.com>"]
 edition = "2021"
 
@@ -15,7 +15,7 @@ name = "vrc-ban-bot"
 path = "src/bin/bot.rs"
 
 [dependencies]
-cached = { version = "0.48", features = ["async"] }
+cached = { version = "0.49", features = ["async"] }
 chrono = { version = "0.4", features = ["serde"] }
 color-eyre = { version = "0.6", features = ["issue-url"] }
 derive-config = { version = "2", features = ["json", "toml"] }

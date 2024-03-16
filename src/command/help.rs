@@ -11,7 +11,7 @@ pub async fn help(ctx: Context<'_, Data, Report>) -> Result<()> {
         .embed(CreateEmbed::default()
             .title("GitHub Source Code")
             .url("https://github.com/ShayBox/VRC-BAN")
-            .description("The Stoner Booth VRChat Group Discord Bot")
+            .description("Stoner Booth VRChat Group Discord Bot")
             .timestamp(Timestamp::now())
             .author(CreateEmbedAuthor::new("").name("Shayne Hartford (ShayBox)").url("https://shaybox.com").icon_url("https://avatars1.githubusercontent.com/u/9505196"))
             .field("Commands", "", false)
