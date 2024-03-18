@@ -6,6 +6,7 @@ use maud::{html, Markup, PreEscaped, DOCTYPE};
 use rocket::{response::status::BadRequest, time::OffsetDateTime, tokio::sync::Mutex, State};
 use vrc::{
     api_client::{ApiClient, AuthenticatedVRC},
+    id::User as UserID,
     query::{GroupAuditLogs, User},
 };
 
@@ -61,8 +62,16 @@ pub async fn leaderboard(
     for log in logs {
         match log.event_type.as_ref() {
             "group.user.ban" => {
+                #[rustfmt::skip] // Merge alt accounts
+                let id = match log.actor_id.as_ref() {
+                    "usr_01a387da-e758-451f-96e5-e3a7282c7197" => "usr_71ddbbc1-c70f-4b4a-a0fc-e87f57038393", // ~WhiteBoy~ -> Buckshot1776
+                    "usr_a4cec242-f798-4d53-aa69-b85e19e9d978" => "usr_275004c5-5532-47e6-a543-2ebf88229bdf", // ZealWolf d978 -> Zeal Wolf
+                    "usr_5dc9c86d-2de7-4c10-b11d-8dd1335270de" | "usr_98139f06-9b7e-4a2c-b7b0-8459b51dddbb" => "usr_2e8e2b0c-df4e-499f-bbf0-ddc5f3841488", // TheVoiceBox | FemBox -> ShayBox
+                    id => id,
+                };
+
                 logs_by_actor_id
-                    .entry(log.actor_id.clone())
+                    .entry(Into::<UserID>::into(id))
                     .or_insert(Vec::new())
                     .push(log);
             }
