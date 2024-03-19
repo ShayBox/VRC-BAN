@@ -2997,7 +2997,7 @@ dependencies = [
 
 [[package]]
 name = "vrc-ban"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "cached",
  "chrono",
@@ -3006,6 +3006,7 @@ dependencies = [
  "indexmap 2.2.5",
  "maud",
  "poise",
+ "regex",
  "reqwest",
  "rocket",
  "serde",
