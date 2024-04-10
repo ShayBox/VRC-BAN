@@ -1,6 +1,6 @@
 [package]
 name = "vrc-ban"
-version = "0.3.5"
+version = "0.3.6"
 authors = ["Shayne Hartford <shaybox@shaybox.com>"]
 edition = "2021"
 
@@ -23,7 +23,7 @@ indexmap = { version = "2", features = ["rayon"] }
 maud = { version = "0.26", features = ["rocket"] }
 poise = { version = "0.6", features = ["collector"] }
 regex = { version = "1", features = ["unstable"] }
-reqwest = { version = "0.11", features = ["json"], default-features = false }
+reqwest = { version = "0.12", features = ["json"], default-features = false }
 rocket = { version = "0.5", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 totp = { version = "5", package = "totp-rs" }

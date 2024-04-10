@@ -24,6 +24,7 @@ use crate::Data;
 pub async fn user(
     ctx: Context<'_, Data, Report>,
     #[description = "VRChat Username"] username: Option<String>,
+    #[description = "VRChat ID"] id: Option<String>,
 ) -> Result<()> {
     let Data { config, vrchat } = ctx.data();
 
@@ -33,7 +34,9 @@ pub async fn user(
     let reply = ctx.send(builder).await?;
 
     // Loop over all returned users and let the user perform actions
-    let users = if let Some(search) = username {
+    let users = if let Some(id) = id {
+        vec![id.parse().map_err(Report::msg)?]
+    } else if let Some(search) = username {
         vrchat
             .query(SearchUser {
                 search,

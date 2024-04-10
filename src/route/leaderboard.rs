@@ -59,10 +59,10 @@ pub async fn leaderboard(
     let mut logs_by_actor_id = IndexMap::new();
     for log in logs {
         match log.event_type.as_ref() {
-            "group.user.ban" => {
+            "group.user.ban" | "group.instance.kick" | "group.instance.warn" => {
                 #[rustfmt::skip] // Merge alt accounts
                 let id = match log.actor_id.as_ref() {
-                    // ~WhiteBoy~ -> Buckshot1776
+                    // ~WhiteBoy~ -> -WhiteBoy-
                     "usr_01a387da-e758-451f-96e5-e3a7282c7197" => "usr_71ddbbc1-c70f-4b4a-a0fc-e87f57038393",
                     // ZealWolf d978 -> Zeal Wolf
                     "usr_a4cec242-f798-4d53-aa69-b85e19e9d978" => "usr_275004c5-5532-47e6-a543-2ebf88229bdf",
@@ -121,7 +121,7 @@ pub async fn leaderboard(
                 }
 
                 main class="position-absolute top-50 start-50 translate-middle" {
-                    a href="https://discord.stonerbooth.com" { "Got banned and aren't a child? Join the Discord" }
+                    a href="https://discord.stonerbooth.com" { "Got banned, aren't a child, and want a second chance? Join the Discord" }
 
                     table class="table table-striped table-bordered" {
                         thead {
@@ -131,19 +131,85 @@ pub async fn leaderboard(
                                 th scope="col" { "Display Name" }
                                 th scope="col" { "Bans" }
                                 th scope="col" { "24h" }
+                                th scope="col" { "Kicks" }
+                                th scope="col" { "24h" }
+                                th scope="col" { "Warns" }
+                                th scope="col" { "24h" }
+                                th scope="col" { "Total" }
                             }
                         }
 
                         tbody class="table-group-divider" {
-                            @let total = logs_by_actor_id.values().flatten().count() as u32;
-                            @let diffs = new_logs_by_actor_id.values().flatten().count() as u32;
+                            @let total_bans = logs_by_actor_id
+                                .values()
+                                .flatten()
+                                .filter(|log| log.event_type == "group.user.ban")
+                                .count() as u32;
+                            @let total_kicks = logs_by_actor_id
+                                .values()
+                                .flatten()
+                                .filter(|log| log.event_type == "group.instance.kick")
+                                .count() as u32;
+                            @let total_warns = logs_by_actor_id
+                                .values()
+                                .flatten()
+                                .filter(|log| log.event_type == "group.instance.warn")
+                                .count() as u32;
+                            @let new_bans = new_logs_by_actor_id
+                                .values()
+                                .flatten()
+                                .filter(|log| log.event_type == "group.user.ban")
+                                .count() as u32;
+                            @let new_kicks = new_logs_by_actor_id
+                                .values()
+                                .flatten()
+                                .filter(|log| log.event_type == "group.instance.kick")
+                                .count() as u32;
+                            @let new_warns = new_logs_by_actor_id
+                                .values()
+                                .flatten()
+                                .filter(|log| log.event_type == "group.instance.warn")
+                                .count() as u32;
+                            @let total_total = total_bans + total_kicks + total_warns;
                             @for (i, (actor_id, logs)) in logs_by_actor_id.into_iter().enumerate() {
-                                @let diff = new_logs_by_actor_id.get(&actor_id).map_or(0, Vec::len);
-                                @let bans = logs.len() as u32;
-                                @let percent = (f64::from(bans) / f64::from(total)) * 100.0;
-                                @let query = User{ id: actor_id.clone() };
-                                @let user = vrchat.query(query).await.map_err(crate::bad_request)?;
-                                @let name = &user.as_user().base.display_name;
+                                @let name = vrchat.query(User{ id: actor_id.clone() }).await
+                                    .map_err(crate::bad_request)
+                                    .map_or_else(|_| actor_id.to_string(), |user| user.as_user().base.display_name.clone());
+                                @let bans = logs
+                                    .iter()
+                                    .filter(|log| log.event_type == "group.user.ban")
+                                    .count() as u32;
+                                @let kicks = logs
+                                    .iter()
+                                    .filter(|log| log.event_type == "group.instance.kick")
+                                    .count() as u32;
+                                @let warns = logs
+                                    .iter()
+                                    .filter(|log| log.event_type == "group.instance.warn")
+                                    .count() as u32;
+                                @let new_bans = new_logs_by_actor_id
+                                    .get(&actor_id)
+                                    .map_or(0, |logs| logs
+                                        .iter()
+                                        .filter(|log| log.event_type == "group.user.ban")
+                                        .count()
+                                    );
+                                @let new_kicks = new_logs_by_actor_id
+                                    .get(&actor_id)
+                                    .map_or(0, |logs| logs
+                                        .iter()
+                                        .filter(|log| log.event_type == "group.instance.kick")
+                                        .count()
+                                    );
+                                @let new_warns = new_logs_by_actor_id
+                                    .get(&actor_id)
+                                    .map_or(0, |logs| logs
+                                        .iter()
+                                        .filter(|log| log.event_type == "group.instance.warn")
+                                        .count()
+                                    );
+                                @let total = bans + kicks + warns;
+                                @let percent = (f64::from(total) / f64::from(total_total)) * 100.0;
                                 @let style = match i {
                                     0 => "color: #d6af36; font-weight: bold",
                                     1 => "color: #a77044; font-weight: bold",
@@ -156,7 +222,12 @@ pub async fn leaderboard(
                                     td style=(style) { (format!("{percent:.1}")) }
                                     td style=(style) { (name) }
                                     td style=(style) { (bans) }
-                                    td style=(style) { (diff) }
+                                    td style=(style) { (new_bans) }
+                                    td style=(style) { (kicks) }
+                                    td style=(style) { (new_kicks) }
+                                    td style=(style) { (warns) }
+                                    td style=(style) { (new_warns) }
+                                    td style=(style) { (total) }
                                 }
                             }
                         }
@@ -166,8 +237,13 @@ pub async fn leaderboard(
                                 th scope="row" { "#" }
                                 td { "100.0" }
                                 td { "Total" }
-                                td { (total) }
-                                td { (diffs) }
+                                td { (total_bans) }
+                                td { (new_bans) }
+                                td { (total_kicks) }
+                                td { (new_kicks) }
+                                td { (total_warns) }
+                                td { (new_warns) }
+                                td { (total_total) }
                             }
                         }
                     }
