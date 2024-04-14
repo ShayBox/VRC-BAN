@@ -209,7 +209,7 @@ pub async fn leaderboard(
                                         .count()
                                     );
                                 @let total = bans + kicks + warns;
-                                @let percent = (f64::from(total) / f64::from(total_total)) * 100.0;
+                                @let percent = (f64::from(total - warns) / f64::from(total_total - total_warns)) * 100.0;
                                 @let style = match i {
                                     0 => "color: #d6af36; font-weight: bold",
                                     1 => "color: #a77044; font-weight: bold",
@@ -220,7 +220,7 @@ pub async fn leaderboard(
                                 tr {
                                     th style=(style) scope="row" { (i + 1) }
                                     td style=(style) { (format!("{percent:.1}")) }
-                                    td style=(style) { (name) }
+                                    td style=(style) { (name.replace("vrc_admin", "Vote Kick")) }
                                     td style=(style) { (bans) }
                                     td style=(style) { (new_bans) }
                                     td style=(style) { (kicks) }

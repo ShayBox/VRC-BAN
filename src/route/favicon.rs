@@ -2,7 +2,7 @@ use cached::proc_macro::once;
 use reqwest::Client;
 use rocket::{response::status::BadRequest, State};
 
-const FILE: &str = "file_c8b49c10-4ef9-4db8-9cf7-aabce8286a6e/1";
+const FILE: &str = "file_458fd3ea-d81a-4ab4-8626-56c860dda723/1";
 
 #[derive(Clone, Hash, Responder)]
 #[response(status = 200, content_type = "image/png")]
