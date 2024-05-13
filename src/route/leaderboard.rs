@@ -101,12 +101,13 @@ pub async fn leaderboard(
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
 
-                meta property="og:title" content="Leaderboard";
+                meta property="og:title" content="Stoner Booth";
+                meta property="og:description" content="Staff Ban Leaderboard";
                 meta property="og:type" content="website";
                 meta property="og:url" content="https://stonerbooth.com/leaderboard";
-                meta property="og:image" content="https://socialify.git.ci/ShayBox/VRC-BAN/png";
-                meta property="og:width" content="1280";
-                meta property="og:height" content="640";
+                meta property="og:image" content="https://api.vrchat.cloud/api/1/file/file_03796aa7-32f8-48ad-a8fe-f72aae939c4c/1/file";
+                meta property="og:width" content="2000";
+                meta property="og:height" content="1125";
 
                 title { "Leaderboard | Stoner Booth" }
 
