@@ -3,11 +3,13 @@ use chrono::Utc;
 use derive_config::DeriveJsonConfig;
 use indexmap::IndexMap;
 use maud::{html, Markup, PreEscaped, DOCTYPE};
-use rocket::{response::status::BadRequest, time::OffsetDateTime, tokio::sync::Mutex, State};
+use rocket::{
+    response::status::BadRequest, time::OffsetDateTime, tokio::sync::Mutex, Either, State,
+};
 use vrc::{
     api_client::{ApiClient, AuthenticatedVRC},
     id::User as UserID,
-    query::{GroupAuditLogs, User},
+    query::{GroupAuditLogs, Pagination, User},
 };
 
 use crate::{AuditLogs, Config};
@@ -25,9 +27,11 @@ pub async fn leaderboard(
     let logs = {
         let mut audits = audits.lock().await;
         let mut query = GroupAuditLogs {
-            id:     config.group_id_audit.clone(),
-            n:      Some(100),
-            offset: Some(0),
+            id: config.group_id_audit.clone(),
+            pagination: Pagination {
+                limit: 100,
+                offset: 0,
+            },
         };
 
         loop {
@@ -47,9 +51,7 @@ pub async fn leaderboard(
                 break; // Last page or no unique entries
             }
 
-            if let Some(offset) = query.offset {
-                query.offset = Some(offset + 100);
-            }
+            query.pagination.offset += 100;
         }
 
         audits.save().map_err(crate::bad_request)?;
@@ -61,13 +63,26 @@ pub async fn leaderboard(
         match log.event_type.as_ref() {
             "group.user.ban" | "group.instance.kick" | "group.instance.warn" => {
                 #[rustfmt::skip] // Merge alt accounts
-                let id = match log.actor_id.as_ref() {
+                let id = match log.actor_id {
+                    Either::Left(ref id) => &id.to_string(),
+                    Either::Right(ref id) => id,
+                };
+
+                let id = match id.as_str() {
                     // ~WhiteBoy~ -> -WhiteBoy-
-                    "usr_01a387da-e758-451f-96e5-e3a7282c7197" => "usr_71ddbbc1-c70f-4b4a-a0fc-e87f57038393",
+                    "usr_01a387da-e758-451f-96e5-e3a7282c7197" => {
+                        "usr_71ddbbc1-c70f-4b4a-a0fc-e87f57038393"
+                    }
                     // ZealWolf d978 -> Zeal Wolf
-                    "usr_a4cec242-f798-4d53-aa69-b85e19e9d978" => "usr_275004c5-5532-47e6-a543-2ebf88229bdf",
+                    "usr_a4cec242-f798-4d53-aa69-b85e19e9d978" => {
+                        "usr_275004c5-5532-47e6-a543-2ebf88229bdf"
+                    }
                     // TheVoiceBox | FemBox -> ShayBox
-                    "usr_5dc9c86d-2de7-4c10-b11d-8dd1335270de" | "usr_98139f06-9b7e-4a2c-b7b0-8459b51dddbb" => "usr_2e8e2b0c-df4e-499f-bbf0-ddc5f3841488",
+                    "usr_5dc9c86d-2de7-4c10-b11d-8dd1335270de"
+                    | "usr_98139f06-9b7e-4a2c-b7b0-8459b51dddbb" => {
+                        "usr_2e8e2b0c-df4e-499f-bbf0-ddc5f3841488"
+                    }
+                    "vrc_admin" => "Vote Kick",
                     id => id,
                 };
 
@@ -77,7 +92,8 @@ pub async fn leaderboard(
                     .push(log);
             }
             "group.user.unban" => {
-                if let Some(logs) = logs_by_actor_id.get_mut(&log.actor_id) {
+                let actor_id = &log.actor_id.left().expect("Incorrect event type");
+                if let Some(logs) = logs_by_actor_id.get_mut(actor_id) {
                     logs.retain(|log1| log1.target_id != log.target_id);
                 }
             }

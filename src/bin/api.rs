@@ -10,7 +10,7 @@ use vrc_ban::{route::prelude::*, AuditLogs, Config};
 #[rocket::main]
 async fn main() -> Result<()> {
     let mut config = Config::load()?;
-    let audits = Mutex::new(AuditLogs::load().unwrap_or_default());
+    let audits = Mutex::new(AuditLogs::load()?);
     let client = Client::builder().user_agent(&config.user_agent).build()?;
     let vrchat = vrc_ban::vrchat::login(&mut config).await?;
 

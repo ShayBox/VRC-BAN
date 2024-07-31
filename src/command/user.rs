@@ -3,12 +3,12 @@ use std::time::Duration;
 use color_eyre::{Report, Result};
 use poise::{
     serenity_prelude::{CreateInteractionResponse as CIR, *},
-    Context,
-    CreateReply,
+    Context, CreateReply,
 };
+use rocket::Either;
 use vrc::{
     api_client::ApiClient,
-    query::{GroupAuditLogs, GroupBan, GroupMember, GroupUnban, SearchUser, User},
+    query::{GroupAuditLogs, GroupBan, GroupMember, GroupUnban, Pagination, SearchUser, User},
 };
 
 use crate::Data;
@@ -31,7 +31,7 @@ pub async fn user(
     // Send loading message to edit in a loop for pagination
     let embed = CreateEmbed::default().title("⏳");
     let builder = CreateReply::default().embed(embed);
-    let reply = ctx.send(builder).await?;
+    let reply = ctx.send(builder.clone()).await?;
 
     // Loop over all returned users and let the user perform actions
     let users = if let Some(id) = id {
@@ -49,19 +49,24 @@ pub async fn user(
     } else {
         vrchat
             .query(GroupAuditLogs {
-                id:     config.group_id_audit.clone(),
-                n:      Some(100),
-                offset: Some(0),
+                id: config.group_id_audit.clone(),
+                pagination: Pagination {
+                    limit: 100,
+                    offset: 0,
+                },
             })
             .await?
             .results
             .into_iter()
             .filter_map(|log| log.target_id)
+            .filter_map(Either::left)
             .collect::<Vec<_>>()
     };
 
     let mut i = 0;
     'submit: loop {
+        reply.edit(ctx, builder.clone()).await?;
+
         let id = users[i].clone();
         let any_user = vrchat.query(User { id }).await?;
         let user = any_user.as_user();
@@ -75,16 +80,20 @@ pub async fn user(
             .footer(CreateEmbedFooter::new("VRC-BAN").icon_url("https://cdn.discordapp.com/avatars/1208696990284914719/ab66b12988c0b0ba0e70405abe8089b6"))
             .timestamp(Timestamp::now()
         );
+        let ban_button = CreateButton::new("ban")
+            .emoji('🔨')
+            .label("Ban")
+            .style(ButtonStyle::Danger);
 
         if let Some(member) = vrchat
             .query(GroupMember {
                 group_id: config.group_id_audit.clone(),
-                user_id:  user.base.id.clone(),
+                user_id: user.base.id.clone(),
             })
             .await?
         {
             if let Some(banned_at) = member.banned_at {
-                embed = embed.field("Banned", banned_at, true);
+                embed = embed.field("Banned", banned_at.to_string(), true);
                 buttons.push(
                     CreateButton::new("pardon")
                         .emoji('⚖')
@@ -92,20 +101,10 @@ pub async fn user(
                         .style(ButtonStyle::Success),
                 );
             } else {
-                buttons.push(
-                    CreateButton::new("ban")
-                        .emoji('🔨')
-                        .label("Ban")
-                        .style(ButtonStyle::Danger),
-                );
+                buttons.push(ban_button);
             };
         } else {
-            buttons.push(
-                CreateButton::new("ban")
-                    .emoji('🔨')
-                    .label("Ban")
-                    .style(ButtonStyle::Danger),
-            );
+            buttons.push(ban_button);
         }
 
         if i < users.len() - 1 {
@@ -154,7 +153,7 @@ pub async fn user(
                 "pardon" => {
                     let query = GroupUnban {
                         group_id: config.group_id_audit.clone(),
-                        user_id:  user.base.id.clone(),
+                        user_id: user.base.id.clone(),
                     };
 
                     vrchat.query(query).await?;
@@ -164,7 +163,7 @@ pub async fn user(
                 "ban" => {
                     let query = GroupBan {
                         group_id: config.group_id_audit.clone(),
-                        user_id:  user.base.id.clone(),
+                        user_id: user.base.id.clone(),
                     };
 
                     vrchat.query(query).await?;

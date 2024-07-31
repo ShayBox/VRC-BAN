@@ -1,6 +1,6 @@
 [package]
 name = "vrc-ban"
-version = "0.3.8"
+version = "0.3.9"
 authors = ["Shayne Hartford <shaybox@shaybox.com>"]
 edition = "2021"
 
@@ -15,19 +15,19 @@ name = "vrc-ban-bot"
 path = "src/bin/bot.rs"
 
 [dependencies]
-cached = { version = "0.51", features = ["async"] }
+cached = { version = "0.53", features = ["async"] }
 chrono = { version = "0.4", features = ["serde"] }
 color-eyre = { version = "0.6", features = ["issue-url"] }
 derive-config = { version = "2", features = ["json", "toml"] }
 indexmap = { version = "2", features = ["rayon"] }
 maud = { version = "0.26", features = ["rocket"] }
 poise = { version = "0.6", features = ["collector"] }
-regex = { version = "1", features = ["unstable"] }
+regex = { version = "1", features = ["logging"] }
 reqwest = { version = "0.12", features = ["json"], default-features = false }
 rocket = { version = "0.5", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 totp = { version = "5", package = "totp-rs" }
-vrc = { git = "https://github.com/Shays-Forks/vrc_rs.git", features = [
+vrc = { git = "https://github.com/SheaFoxx/vrc_rs.git", features = [
     "api_client",
 ] }
 # vrc = { path = "vrc_rs", features = ["api_client"] }
