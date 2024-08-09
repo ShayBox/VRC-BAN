@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use color_eyre::{Report, Result};
+use derive_config::DeriveJsonConfig;
 use poise::{
-    serenity_prelude::{CreateInteractionResponse as CIR, *},
+    serenity_prelude::{CreateInteractionResponse as CIR, FormattedTimestampStyle, Timestamp, *},
     Context, CreateReply,
 };
 use rocket::Either;
@@ -11,20 +12,15 @@ use vrc::{
     query::{GroupAuditLogs, GroupBan, GroupMember, GroupUnban, Pagination, SearchUser, User},
 };
 
-use crate::Data;
+use crate::{AuditLogs, Data};
 
-/// Manage a VRChat user
+/// Search recent audit log actions by default.
 #[allow(clippy::too_many_lines)]
-#[poise::command(
-    slash_command,
-    track_edits,
-    required_permissions = "BAN_MEMBERS",
-    aliases("ban", "unban", "pardon", "recent")
-)]
+#[poise::command(slash_command, track_edits, required_permissions = "BAN_MEMBERS")]
 pub async fn user(
     ctx: Context<'_, Data, Report>,
-    #[description = "VRChat Username"] username: Option<String>,
-    #[description = "VRChat ID"] id: Option<String>,
+    #[description = "Search by Username"] username: Option<String>,
+    #[description = "Search by User ID"] id: Option<String>,
 ) -> Result<()> {
     let Data { config, vrchat } = ctx.data();
 
@@ -85,26 +81,52 @@ pub async fn user(
             .label("Ban")
             .style(ButtonStyle::Danger);
 
-        if let Some(member) = vrchat
-            .query(GroupMember {
-                group_id: config.group_id_audit.clone(),
-                user_id: user.base.id.clone(),
-            })
-            .await?
-        {
-            if let Some(banned_at) = member.banned_at {
-                embed = embed.field("Banned", banned_at.to_string(), true);
-                buttons.push(
-                    CreateButton::new("pardon")
-                        .emoji('⚖')
-                        .label("Pardon")
-                        .style(ButtonStyle::Success),
-                );
-            } else {
-                buttons.push(ban_button);
-            };
-        } else {
-            buttons.push(ban_button);
+        let query = GroupMember {
+            group_id: config.group_id_audit.clone(),
+            user_id: user.base.id.clone(),
+        };
+        match vrchat.query(query).await? {
+            None => buttons.push(ban_button),
+            Some(member) => {
+                /* Append if the user was banned/kicked/warned */
+                match member.banned_at {
+                    None => buttons.push(ban_button),
+                    Some(banned_at) => {
+                        /* Append when the user was actioned */
+                        let timestamp = banned_at.unix_timestamp();
+                        let formatted_timestamp = FormattedTimestamp::new(
+                            Timestamp::from_unix_timestamp(timestamp)?,
+                            Some(FormattedTimestampStyle::RelativeTime),
+                        );
+
+                        embed = embed.field("Banned", formatted_timestamp.to_string(), true);
+                        buttons.push(
+                            CreateButton::new("pardon")
+                                .emoji('⚖')
+                                .label("Pardon")
+                                .style(ButtonStyle::Success),
+                        );
+
+                        /* Append who actioned the user */
+                        if let Ok(logs) = AuditLogs::load() {
+                            if let Some(log) = logs.0.into_iter().find(|log| {
+                                if let Some(Either::Left(target_id)) = &log.target_id {
+                                    *target_id == user.base.id
+                                } else {
+                                    false
+                                }
+                            }) {
+                                /* Parse ID to User and get Display Name */
+                                let id = log.actor_id.to_string().into();
+                                let query = User { id };
+                                let actor = vrchat.query(query).await?;
+                                let display_name = &actor.as_user().base.display_name;
+                                embed = embed.field("By", display_name.to_string(), true);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if i < users.len() - 1 {

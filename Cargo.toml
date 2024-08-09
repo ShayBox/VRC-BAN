@@ -1,6 +1,6 @@
 [package]
 name = "vrc-ban"
-version = "0.3.9"
+version = "0.3.10"
 authors = ["Shayne Hartford <shaybox@shaybox.com>"]
 edition = "2021"
 
@@ -27,9 +27,7 @@ reqwest = { version = "0.12", features = ["json"], default-features = false }
 rocket = { version = "0.5", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 totp = { version = "5", package = "totp-rs" }
-vrc = { git = "https://github.com/SheaFoxx/vrc_rs.git", features = [
-    "api_client",
-] }
+vrc = { git = "https://github.com/SheaFoxx/vrc_rs.git", features = ["api_client"] }
 # vrc = { path = "vrc_rs", features = ["api_client"] }
 
 [features]
