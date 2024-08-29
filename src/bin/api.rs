@@ -1,24 +1,21 @@
 #[macro_use]
 extern crate rocket;
 
-use color_eyre::Result;
-use derive_config::{DeriveJsonConfig, DeriveTomlConfig};
+use anyhow::Result;
+use derive_config::DeriveTomlConfig;
 use reqwest::Client;
-use rocket::tokio::sync::Mutex;
-use vrc_ban::{route::prelude::*, AuditLogs, Config};
+use vrc_ban::{config::Config, logsdb::LogsDB, routes::prelude::*};
 
 #[rocket::main]
 async fn main() -> Result<()> {
-    let mut config = Config::load()?;
-    let audits = Mutex::new(AuditLogs::load()?);
+    let config = Config::load()?;
     let client = Client::builder().user_agent(&config.user_agent).build()?;
-    let vrchat = vrc_ban::vrchat::login(&mut config).await?;
+    let logsdb = LogsDB::connect(&config.sql_secret).await?;
 
     rocket::build()
         .manage(config)
         .manage(client)
-        .manage(audits)
-        .manage(vrchat)
+        .manage(logsdb)
         .mount("/", routes![root, favicon, leaderboard])
         .launch()
         .await?;

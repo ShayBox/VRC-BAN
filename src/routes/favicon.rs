@@ -1,6 +1,6 @@
 use cached::proc_macro::once;
 use reqwest::Client;
-use rocket::{response::status::BadRequest, State};
+use rocket::{response::status::BadRequest, Responder, State};
 
 const FILE: &str = "file_458fd3ea-d81a-4ab4-8626-56c860dda723/1";
 

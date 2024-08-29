@@ -1,11 +1,11 @@
-use color_eyre::{Report, Result};
+use anyhow::{Error, Result};
 use poise::{serenity_prelude::*, Context, CreateReply};
 
 use crate::Data;
 
 /// Information about VRC-BAN
 #[poise::command(track_edits, slash_command)]
-pub async fn help(ctx: Context<'_, Data, Report>) -> Result<()> {
+pub async fn help(ctx: Context<'_, Data, Error>) -> Result<()> {
     let builder = CreateReply::default()
         .ephemeral(true)
         .embed(CreateEmbed::default()

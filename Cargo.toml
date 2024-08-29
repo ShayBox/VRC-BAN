@@ -1,6 +1,6 @@
 [package]
 name = "vrc-ban"
-version = "0.3.11"
+version = "0.4.0"
 authors = ["Shayne Hartford <shaybox@shaybox.com>"]
 edition = "2021"
 
@@ -14,26 +14,31 @@ path = "src/bin/api.rs"
 name = "vrc-ban-bot"
 path = "src/bin/bot.rs"
 
+[[bin]]
+name = "vrc-ban-log"
+path = "src/bin/log.rs"
+
 [dependencies]
+anyhow = "1"
 cached = { version = "0.53", features = ["async"] }
-chrono = { version = "0.4", features = ["serde"] }
-color-eyre = { version = "0.6", features = ["issue-url"] }
-derive-config = { version = "2", features = ["json", "toml"] }
-indexmap = { version = "2", features = ["rayon"] }
+derive-config = { version = "2", features = ["toml", "json"] }
 maud = { version = "0.26", features = ["rocket"] }
 poise = { version = "0.6", features = ["collector"] }
-regex = { version = "1", features = ["logging"] }
-reqwest = { version = "0.12", features = ["json"], default-features = false }
+reqwest = { version = "0.12", default-features = false }
+reqwest_cookie_store = { version = "0.8", features = ["serde"] }
 rocket = { version = "0.5", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sqlx = { version = "0.8", features = ["mysql"] }
+time = { version = "0.3", features = ["serde"] }
+tokio = { version = "1", features = ["macros"] }
 totp = { version = "5", package = "totp-rs" }
-vrc = { git = "https://github.com/SheaFoxx/vrc_rs.git", features = ["api_client"] }
-# vrc = { path = "vrc_rs", features = ["api_client"] }
+vrchatapi = { git = "https://github.com/Shays-Forks/vrchatapi-rust" }
 
 [features]
 default = ["rustls-tls"]
-native-tls = ["reqwest/native-tls"]
-rustls-tls = ["reqwest/rustls-tls"]
+native-tls = ["reqwest/native-tls", "sqlx/runtime-tokio-native-tls"]
+rustls-tls = ["reqwest/rustls-tls", "sqlx/runtime-tokio-rustls"]
 
 [lints.clippy]
 pedantic = "warn"

@@ -1,21 +1,28 @@
-use color_eyre::Result;
+use anyhow::Result;
 use derive_config::DeriveTomlConfig;
 #[cfg(not(debug_assertions))]
 use poise::samples::register_globally;
 #[cfg(debug_assertions)]
 use poise::samples::register_in_guild;
 use poise::{serenity_prelude::*, Framework, FrameworkOptions};
-use vrc_ban::{command::prelude::*, Config, Data};
+use vrc_ban::{commands::prelude::*, config::Config, logsdb::LogsDB, vrchat::VRChat, Data};
 
-#[rocket::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let mut config = Config::load()?;
-    let vrchat = vrc_ban::vrchat::login(&mut config).await?;
+    let config = Config::load()?;
+    let logsdb = LogsDB::connect(&config.sql_secret).await?;
+    let vrchat = VRChat::new(
+        &config.vrc_cookies,
+        &config.vrc_username,
+        &config.vrc_password,
+        &config.user_agent,
+    )?;
+
     let framework = {
         let config = config.clone();
         Framework::builder()
             .options(FrameworkOptions {
-                commands: vec![user(), help()],
+                commands: vec![pardon(), help()],
                 ..Default::default()
             })
             .setup(move |ctx, _ready, framework| {
@@ -29,14 +36,18 @@ async fn main() -> Result<()> {
                     #[cfg(not(debug_assertions))]
                     register_globally(ctx, commands).await?;
 
-                    Ok(Data { config, vrchat })
+                    Ok(Data {
+                        config,
+                        logsdb,
+                        vrchat,
+                    })
                 })
             })
             .build()
     };
 
     let intent = GatewayIntents::non_privileged() | GatewayIntents::GUILDS;
-    let mut client = ClientBuilder::new(&config.discord_client, intent)
+    let mut client = ClientBuilder::new(&config.bot_secret, intent)
         .framework(framework)
         .await?;
 
