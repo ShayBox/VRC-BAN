@@ -1,10 +1,13 @@
 use std::time::Duration;
 
+use color_eyre::Result;
 use derive_config::DeriveTomlConfig;
 use vrc_ban::{config::Config, logsdb::LogsDB, vrchat::VRChat};
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<()> {
+    color_eyre::install()?;
+
     /* Load the config and connect to MySql */
     let mut config = Config::load()?;
     let logdb = LogsDB::connect(&config.sql_secret).await?;
@@ -22,13 +25,16 @@ async fn main() -> anyhow::Result<()> {
 
     loop {
         /* Insert all the logs until a duplicate is found */
-        for log in vrchat.get_group_audit_logs(&config.vrc_group_id).await? {
+        for log in vrchat
+            .get_all_group_audit_logs(&config.vrc_group_id)
+            .await?
+        {
             if let Err(error) = logdb.insert_log(log).await {
                 eprintln!("Error: {error}");
                 break;
             };
         }
 
-        tokio::time::sleep(Duration::from_secs(60 * 60)).await;
+        tokio::time::sleep(Duration::from_secs(1800)).await;
     }
 }

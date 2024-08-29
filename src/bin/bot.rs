@@ -1,4 +1,4 @@
-use anyhow::Result;
+use color_eyre::Result;
 use derive_config::DeriveTomlConfig;
 #[cfg(not(debug_assertions))]
 use poise::samples::register_globally;
@@ -9,6 +9,8 @@ use vrc_ban::{commands::prelude::*, config::Config, logsdb::LogsDB, vrchat::VRCh
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
+    color_eyre::install()?;
+
     let config = Config::load()?;
     let logsdb = LogsDB::connect(&config.sql_secret).await?;
     let vrchat = VRChat::new(

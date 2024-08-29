@@ -1,6 +1,6 @@
 [package]
 name = "vrc-ban"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Shayne Hartford <shaybox@shaybox.com>"]
 edition = "2021"
 
@@ -19,9 +19,9 @@ name = "vrc-ban-log"
 path = "src/bin/log.rs"
 
 [dependencies]
-anyhow = "1"
 cached = { version = "0.53", features = ["async"] }
-derive-config = { version = "2", features = ["toml", "json"] }
+color-eyre = { version = "0.6", default-features = false }
+derive-config = { version = "2", features = ["toml"] }
 maud = { version = "0.26", features = ["rocket"] }
 poise = { version = "0.6", features = ["collector"] }
 reqwest = { version = "0.12", default-features = false }

@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use anyhow::{Error, Result};
+use color_eyre::{
+    eyre::{Error, OptionExt},
+    Result,
+};
 use poise::{
     serenity_prelude::{CreateInteractionResponse as CIR, *},
     Context,
@@ -37,8 +40,8 @@ pub async fn pardon(
 ) -> Result<()> {
     let message = Message::new(ctx).await?;
     let Data {
-        config: _,
-        logsdb,
+        config,
+        logsdb: _,
         vrchat,
     } = ctx.data();
 
@@ -46,11 +49,26 @@ pub async fn pardon(
     let uuids = if let Some(uuid) = uuid {
         vec![uuid]
     } else if let Some(name) = name {
-        let users = vrchat.search_users(&name).await?;
-        users.into_iter().map(|user| user.id).collect()
+        vrchat
+            .search_users(&name)
+            .await?
+            .into_iter()
+            .map(|user| user.id)
+            .collect()
     } else {
-        let logs = logsdb.get_recent_logs("group.user.ban", 100).await?;
-        logs.into_iter().filter_map(|log| log.target_id).collect()
+        vrchat
+            .get_group_audit_logs(&config.vrc_group_id, 100, 0)
+            .await?
+            .results
+            .ok_or_eyre("None")?
+            .into_iter()
+            .filter(|log| {
+                log.event_type
+                    .as_ref()
+                    .map_or(false, |event_type| event_type == "group.user.ban")
+            })
+            .filter_map(|log| log.target_id)
+            .collect()
     };
 
     /* Paginate the unique user ids */
@@ -121,9 +139,6 @@ async fn edit_message(
     /* Get the user and member */
     let user_id = &uuids[index];
     let user = vrchat.get_user(user_id).await?;
-    let member = vrchat
-        .get_group_member(&config.vrc_group_id, user_id)
-        .await?;
 
     /* Fallback to the avatar thumbnail without VRC+ */
     let mut url = user.profile_pic_override_thumbnail;
@@ -171,31 +186,33 @@ async fn edit_message(
         buttons.push(button);
     }
 
-    /* Check if the user is banned */
-    if let Some(banned_at) = member.banned_at.flatten() {
-        /* Search the logs database for the users most recent ban */
-        let logs = logsdb
-            .find_recent_logs("group.user.ban", user_id, 100)
-            .await?;
-        if let Some(log) = logs.first() {
-            let actor = vrchat.get_user(&log.actor_id).await?;
-            let text = format!("Banned by {}", actor.display_name);
-            let footer = CreateEmbedFooter::new(text).icon_url(actor.user_icon);
-            embed = embed.footer(footer);
+    // TODO: Replace with database query for last ban/unban
+    if let Ok(member) = vrchat.get_group_member(&config.vrc_group_id, user_id).await {
+        if let Some(banned_at) = member.banned_at.flatten() {
+            /* Search the logs database for the users most recent ban */
+            let logs = logsdb
+                .find_recent_logs("group.user.ban", user_id, 100)
+                .await?;
+            if let Some(log) = logs.first() {
+                let actor = vrchat.get_user(&log.actor_id).await?;
+                let text = format!("Banned by {}", actor.display_name);
+                let footer = CreateEmbedFooter::new(text).icon_url(actor.user_icon);
+                embed = embed.footer(footer);
+            }
+
+            /* Parse, Convert, and Add the ban timestamp */
+            let date_time = OffsetDateTime::parse(&banned_at, &Rfc3339)?;
+            let timestamp = Timestamp::from_unix_timestamp(date_time.unix_timestamp())?;
+            embed = embed.timestamp(timestamp);
+
+            /* Create & Add the pardon button */
+            let button = CreateButton::new("pardon")
+                .emoji('⚖')
+                .label("Pardon")
+                .style(ButtonStyle::Success);
+
+            buttons.push(button);
         }
-
-        /* Parse, Convert, and Add the ban timestamp */
-        let date_time = OffsetDateTime::parse(&banned_at, &Rfc3339)?;
-        let timestamp = Timestamp::from_unix_timestamp(date_time.unix_timestamp())?;
-        embed = embed.timestamp(timestamp);
-
-        /* Create & Add the pardon button */
-        let button = CreateButton::new("pardon")
-            .emoji('⚖')
-            .label("Pardon")
-            .style(ButtonStyle::Success);
-
-        buttons.push(button);
     }
 
     /* Wrap the buttons into components then build and send the reply */

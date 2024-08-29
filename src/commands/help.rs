@@ -1,4 +1,4 @@
-use anyhow::{Error, Result};
+use color_eyre::{eyre::Error, Result};
 use poise::{serenity_prelude::*, Context, CreateReply};
 
 use crate::Data;

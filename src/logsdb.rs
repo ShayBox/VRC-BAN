@@ -1,4 +1,4 @@
-use anyhow::Context;
+use color_eyre::eyre::OptionExt;
 use serde_json::Value;
 use sqlx::{mysql::MySqlQueryResult, prelude::*, MySqlPool, Result};
 use vrchatapi::models::GroupAuditLogEntry;
@@ -32,18 +32,18 @@ pub struct StaffStats {
 
 /// Convert between `GroupAuditLogEntry` and Log
 impl TryFrom<GroupAuditLogEntry> for Log {
-    type Error = anyhow::Error;
+    type Error = color_eyre::eyre::Error;
 
     fn try_from(log: GroupAuditLogEntry) -> Result<Self, Self::Error> {
         Ok(Self {
-            id: log.id.context("id")?,
-            created_at: log.created_at.context("created_at")?,
-            group_id: log.group_id.context("group_id")?,
-            actor_id: log.actor_id.context("actor_id")?,
+            id: log.id.ok_or_eyre("id")?,
+            created_at: log.created_at.ok_or_eyre("created_at")?,
+            group_id: log.group_id.ok_or_eyre("group_id")?,
+            actor_id: log.actor_id.ok_or_eyre("actor_id")?,
             actor_display_name: log.actor_display_name,
             target_id: log.target_id,
-            event_type: log.event_type.context("event_type")?,
-            description: log.description.context("description")?,
+            event_type: log.event_type.ok_or_eyre("event_type")?,
+            description: log.description.ok_or_eyre("description")?,
             data: serde_json::to_value(&log.data)?,
         })
     }
@@ -87,25 +87,6 @@ impl LogsDB {
         .bind(log.description)
         .bind(log.data)
         .execute(&self.0)
-        .await
-    }
-
-    /// # Get recent logs of a certain type
-    ///
-    /// # Errors
-    /// Will return `Err` if `sqlx::query_as` fails.
-    pub async fn get_recent_logs(&self, event_type: &str, limit: i32) -> Result<Vec<Log>> {
-        sqlx::query_as(
-            r"
-                SELECT * FROM logs
-                WHERE event_type = ?
-                ORDER BY created_at DESC
-                LIMIT ?
-            ",
-        )
-        .bind(event_type)
-        .bind(limit)
-        .fetch_all(&self.0)
         .await
     }
 

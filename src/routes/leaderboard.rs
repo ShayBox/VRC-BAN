@@ -8,7 +8,7 @@ use crate::logsdb::LogsDB;
 ///
 /// # Errors
 #[get("/leaderboard")]
-#[once(time = 3600, result = true, sync_writes = true)]
+#[once(time = 1800, result = true, sync_writes = true)]
 pub async fn leaderboard(logsdb: &State<LogsDB>) -> Result<Markup, BadRequest<String>> {
     let mut staff_stats = logsdb.get_staff_stats().await.map_err(crate::bad_request)?;
     staff_stats.sort_by_cached_key(|stats| stats.all_bans + stats.all_kick + stats.all_warn);

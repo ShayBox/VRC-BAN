@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{bail, Result};
+use color_eyre::{eyre::eyre, Result};
 use reqwest::{Client, Url};
 use reqwest_cookie_store::CookieStoreRwLock;
 use totp::{Algorithm, Secret, TOTP};
@@ -8,7 +8,7 @@ use vrchatapi::{
     apis::{
         authentication_api,
         configuration::Configuration,
-        groups_api::{self, GetGroupMemberError, UnbanGroupMemberError},
+        groups_api::{self, GetGroupAuditLogsError, GetGroupMemberError, UnbanGroupMemberError},
         users_api::{self, GetUserError},
         Error,
     },
@@ -17,6 +17,7 @@ use vrchatapi::{
         GroupLimitedMember,
         GroupMember,
         LimitedUser,
+        PaginatedGroupAuditLogEntryList,
         TwoFactorAuthCode,
         User,
     },
@@ -90,7 +91,7 @@ impl VRChat {
             let two_factor_auth_code = TwoFactorAuthCode::new(code);
             let login = authentication_api::verify2_fa(&self.config, two_factor_auth_code).await?;
             if !login.verified {
-                bail!("2FA: Failed to verify")
+                return Err(eyre!("2FA: Failed to verify"));
             }
         }
 
@@ -117,21 +118,12 @@ impl VRChat {
     ///
     /// # Errors
     /// Will return `Err` if `get_group_audit_logs` fails.
-    pub async fn get_group_audit_logs(&self, group_id: &str) -> Result<Vec<Log>> {
+    pub async fn get_all_group_audit_logs(&self, group_id: &str) -> Result<Vec<Log>> {
         let mut logs = Vec::new();
         let mut offset = 0;
 
         loop {
-            #[rustfmt::skip]
-            let new = groups_api::get_group_audit_logs(
-                &self.config,
-                group_id,
-                Some(MAX),
-                Some(offset),
-                None,
-                None
-            ).await?;
-
+            let new = self.get_group_audit_logs(group_id, MAX, offset).await?;
             let Some(results) = new.results else {
                 break; // There are no new results
             };
@@ -161,6 +153,27 @@ impl VRChat {
         }
 
         Ok(logs)
+    }
+
+    /// # Get the groups audit logs
+    ///
+    /// # Errors
+    /// Will return `Err` if `get_group_audit_logs` fails.
+    pub async fn get_group_audit_logs(
+        &self,
+        group_id: &str,
+        number: i32,
+        offset: i32,
+    ) -> Result<PaginatedGroupAuditLogEntryList, Error<GetGroupAuditLogsError>> {
+        groups_api::get_group_audit_logs(
+            &self.config,
+            group_id,
+            Some(number),
+            Some(offset),
+            None,
+            None,
+        )
+        .await
     }
 
     /// # Get a group member
