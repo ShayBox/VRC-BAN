@@ -32,7 +32,12 @@ impl Message<'_> {
 /// Pardon (unban) a user from Stoner Booth.
 /// Search is sorted most by most recent bans by default.
 #[allow(clippy::too_many_lines)]
-#[poise::command(slash_command, track_edits, required_permissions = "BAN_MEMBERS")]
+#[poise::command(
+    slash_command,
+    guild_only,
+    required_permissions = "BAN_MEMBERS",
+    required_bot_permissions = "BAN_MEMBERS"
+)]
 pub async fn pardon(
     ctx: Context<'_, Data, Error>,
     #[description = "Search by User Name"] name: Option<String>,

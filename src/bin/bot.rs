@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
         let config = config.clone();
         Framework::builder()
             .options(FrameworkOptions {
-                commands: vec![pardon(), help()],
+                commands: vec![cheers(), pardon(), help()],
                 ..Default::default()
             })
             .setup(move |ctx, _ready, framework| {
