@@ -1,9 +1,6 @@
 use std::time::Duration;
 
-use color_eyre::{
-    eyre::{Error, OptionExt},
-    Result,
-};
+use color_eyre::{eyre::Error, Result};
 use poise::{
     serenity_prelude::{CreateInteractionResponse as CIR, *},
     Context,
@@ -64,14 +61,8 @@ pub async fn pardon(
         vrchat
             .get_group_audit_logs(&config.vrc_group_id, 100, 0)
             .await?
-            .results
-            .ok_or_eyre("None")?
             .into_iter()
-            .filter(|log| {
-                log.event_type
-                    .as_ref()
-                    .map_or(false, |event_type| event_type == "group.user.ban")
-            })
+            .filter(|log| log.event_type == "group.user.ban")
             .filter_map(|log| log.target_id)
             .collect()
     };
@@ -92,7 +83,7 @@ async fn paginate(
         vrchat,
     } = ctx.data();
 
-    'pardon: loop {
+    'done: loop {
         let uuid: &String = &uuids[index];
         edit_message(ctx, &message, uuids, index).await?;
 
@@ -121,12 +112,20 @@ async fn paginate(
                     message.reply.delete(ctx).await?;
                     vrchat.pardon_member(&config.vrc_group_id, uuid).await?;
 
-                    break 'pardon Ok(());
+                    break 'done;
+                }
+                "ban" => {
+                    message.reply.delete(ctx).await?;
+                    vrchat.ban_member(&config.vrc_group_id, uuid).await?;
+
+                    break 'done;
                 }
                 _ => {}
             }
         }
     }
+
+    Ok(())
 }
 
 async fn edit_message(
@@ -191,21 +190,25 @@ async fn edit_message(
         buttons.push(button);
     }
 
-    // TODO: Replace with database query for last ban/unban
     if let Ok(member) = vrchat.get_group_member(&config.vrc_group_id, user_id).await {
         if let Some(banned_at) = member.banned_at.flatten() {
-            /* Search the logs database for the users most recent ban */
-            let logs = logsdb
-                .find_recent_logs("group.user.ban", user_id, 100)
-                .await?;
+            /* Search the logs database for the users most recent ban/unban */
+            let logs = logsdb.find_recent_logs(user_id, 100).await?;
+
             if let Some(log) = logs.first() {
-                let actor = vrchat.get_user(&log.actor_id).await?;
-                let text = format!("Banned by {}", actor.display_name);
-                let footer = CreateEmbedFooter::new(text).icon_url(actor.user_icon);
-                embed = embed.footer(footer);
+                if let Some(action) = match log.event_type.as_ref() {
+                    "user.group.ban" => Some("Banned"),
+                    "user.group.unban" => Some("Pardoned"),
+                    _ => None,
+                } {
+                    let actor = vrchat.get_user(&log.actor_id).await?;
+                    let text = format!("{action} by {}", actor.display_name);
+                    let footer = CreateEmbedFooter::new(text).icon_url(actor.user_icon);
+                    embed = embed.footer(footer);
+                }
             }
 
-            /* Parse, Convert, and Add the ban timestamp */
+            /* Parse, Convert, and Add the timestamp */
             let date_time = OffsetDateTime::parse(&banned_at, &Rfc3339)?;
             let timestamp = Timestamp::from_unix_timestamp(date_time.unix_timestamp())?;
             embed = embed.timestamp(timestamp);
@@ -214,6 +217,14 @@ async fn edit_message(
             let button = CreateButton::new("pardon")
                 .emoji('⚖')
                 .label("Pardon")
+                .style(ButtonStyle::Success);
+
+            buttons.push(button);
+        } else {
+            /* Create & Add the ban button */
+            let button = CreateButton::new("ban")
+                .emoji('🔨')
+                .label("Ban")
                 .style(ButtonStyle::Success);
 
             buttons.push(button);

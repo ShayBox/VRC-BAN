@@ -24,17 +24,20 @@ async fn main() -> Result<()> {
     config.save()?;
 
     loop {
-        /* Insert all the logs until a duplicate is found */
-        for log in vrchat
-            .get_all_group_audit_logs(&config.vrc_group_id)
-            .await?
-        {
+        let Ok(logs) = vrchat
+            .get_group_audit_logs(&config.vrc_group_id, 100, 0)
+            .await
+        else {
+            continue;
+        };
+
+        for log in logs {
             if let Err(error) = logdb.insert_log(log).await {
                 eprintln!("Error: {error}");
                 break;
             };
         }
 
-        tokio::time::sleep(Duration::from_secs(1800)).await;
+        tokio::time::sleep(Duration::from_secs(600)).await;
     }
 }

@@ -8,16 +8,22 @@ use vrchatapi::{
     apis::{
         authentication_api,
         configuration::Configuration,
-        groups_api::{self, GetGroupAuditLogsError, GetGroupMemberError, UnbanGroupMemberError},
+        groups_api::{
+            self,
+            BanGroupMemberError,
+            GetGroupAuditLogsError,
+            GetGroupMemberError,
+            UnbanGroupMemberError,
+        },
         users_api::{self, GetUserError},
         Error,
     },
     models::{
+        BanGroupMemberRequest,
         EitherUserOrTwoFactor,
         GroupLimitedMember,
         GroupMember,
         LimitedUser,
-        PaginatedGroupAuditLogEntryList,
         TwoFactorAuthCode,
         User,
     },
@@ -118,54 +124,13 @@ impl VRChat {
     ///
     /// # Errors
     /// Will return `Err` if `get_group_audit_logs` fails.
-    pub async fn get_all_group_audit_logs(&self, group_id: &str) -> Result<Vec<Log>> {
-        let mut logs = Vec::new();
-        let mut offset = 0;
-
-        loop {
-            let new = self.get_group_audit_logs(group_id, MAX, offset).await?;
-            let Some(results) = new.results else {
-                break; // There are no new results
-            };
-
-            if results.is_empty() {
-                break; // There are no new results
-            }
-
-            let len = logs.len();
-            for result in results {
-                logs.push(Log::try_from(result)?);
-            }
-
-            if logs.len() == len {
-                break; // There were no new results
-            }
-
-            let Some(has_next) = new.has_next else {
-                break; // There are no more results
-            };
-
-            if !has_next {
-                break; // There are no more results
-            }
-
-            offset += MAX;
-        }
-
-        Ok(logs)
-    }
-
-    /// # Get the groups audit logs
-    ///
-    /// # Errors
-    /// Will return `Err` if `get_group_audit_logs` fails.
     pub async fn get_group_audit_logs(
         &self,
         group_id: &str,
         number: i32,
         offset: i32,
-    ) -> Result<PaginatedGroupAuditLogEntryList, Error<GetGroupAuditLogsError>> {
-        groups_api::get_group_audit_logs(
+    ) -> Result<Vec<Log>, Error<GetGroupAuditLogsError>> {
+        let audit_logs = groups_api::get_group_audit_logs(
             &self.config,
             group_id,
             Some(number),
@@ -173,7 +138,17 @@ impl VRChat {
             None,
             None,
         )
-        .await
+        .await?;
+
+        let logs = audit_logs
+            .results
+            .into_iter()
+            .flatten()
+            .map(Log::try_from)
+            .filter_map(Result::ok)
+            .collect();
+
+        Ok(logs)
     }
 
     /// # Get a group member
@@ -186,6 +161,19 @@ impl VRChat {
         user_id: &str,
     ) -> Result<GroupLimitedMember, Error<GetGroupMemberError>> {
         groups_api::get_group_member(&self.config, group_id, user_id).await
+    }
+
+    /// # Ban a group member
+    ///
+    /// # Errors
+    /// Will return `Err` if `unban_group_member` fails.
+    pub async fn ban_member(
+        &self,
+        group_id: &str,
+        user_id: &str,
+    ) -> Result<GroupMember, Error<BanGroupMemberError>> {
+        let ban_group_member_request = BanGroupMemberRequest::new(user_id.to_owned());
+        groups_api::ban_group_member(&self.config, group_id, ban_group_member_request).await
     }
 
     /// # Pardon a group member

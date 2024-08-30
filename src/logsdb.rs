@@ -94,21 +94,15 @@ impl LogsDB {
     ///
     /// # Errors
     /// Will return `Err` if `sqlx::query_as` fails.
-    pub async fn find_recent_logs(
-        &self,
-        event_type: &str,
-        target_id: &str,
-        limit: i32,
-    ) -> Result<Vec<Log>> {
+    pub async fn find_recent_logs(&self, target_id: &str, limit: i32) -> Result<Vec<Log>> {
         sqlx::query_as(
             r"
                 SELECT * FROM logs
-                WHERE event_type = ? AND target_id = ?
+                WHERE target_id = ? AND (event_type = 'user.group.ban' OR event_type = 'user.group.unban')
                 ORDER BY created_at DESC
                 LIMIT ?
              ",
         )
-        .bind(event_type)
         .bind(target_id)
         .bind(limit)
         .fetch_all(&self.0)
