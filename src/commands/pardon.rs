@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use color_eyre::{
-    eyre::{Error, OptionExt},
+    eyre::{bail, Error, OptionExt},
     Result,
 };
 use poise::{
@@ -52,11 +52,11 @@ pub async fn pardon(
 
     /* Parse the moderator input (uuid, name, recent) */
     let logs = if let Some(target_id) = uuid {
-        logsdb.get_recent_logs_by_id(&target_id, 100).await
+        logsdb.get_recent_actions_by_id(&target_id, 100).await
     } else if let Some(name) = name {
-        logsdb.get_recent_logs_by_name(&name, 100).await
+        logsdb.get_recent_actions_by_name(&name, 100).await
     } else {
-        logsdb.get_all_recent_logs(100).await
+        logsdb.get_all_recent_actions(100).await
     }?;
 
     /* Paginate the unique user ids */
@@ -68,12 +68,16 @@ async fn paginate_logs(
     message: Message<'_>,
     logs: &[Log],
 ) -> Result<()> {
-    let mut page_index = 0;
+    let mut index = 0;
 
     'done: loop {
-        let log = &logs[page_index];
+        let Some(log) = logs.get(index) else {
+            message.reply.delete(ctx).await?;
+            bail!("No results found")
+        };
+
         let user_id = log.target_id.clone().ok_or_eyre("None")?;
-        edit_message_embed(ctx, &message, logs, page_index).await?;
+        edit_message_embed(ctx, &message, logs, index).await?;
 
         /* Capture users button input in a loop until valid input is received */
         'page: while let Some(mci) = ComponentInteractionCollector::new(ctx)
@@ -92,13 +96,13 @@ async fn paginate_logs(
             match mci.data.custom_id.as_ref() {
                 "last" => {
                     message.reply.edit(ctx, message.builder.clone()).await?;
-                    page_index -= 1;
+                    index -= 1;
 
                     break 'page;
                 }
                 "next" => {
                     message.reply.edit(ctx, message.builder.clone()).await?;
-                    page_index += 1;
+                    index += 1;
 
                     break 'page;
                 }
@@ -185,44 +189,42 @@ async fn edit_message_embed(
         buttons.push(button);
     }
 
-    /* Use the `VRChat` API because the `LogsDB` might not be cached yet */
     if let Ok(member) = vrchat
         .get_group_member(&config.vrc_group_id, &user_id)
         .await
     {
-        if let Some(banned_at) = member.banned_at.flatten() {
-            if let Some(action) = match log.event_type.as_ref() {
-                "user.group.ban" => Some("Banned"),
-                "user.group.unban" => Some("Pardoned"),
-                _ => None,
-            } {
-                let actor = vrchat.get_user(&log.actor_id).await?;
-                let text = format!("{action} by {}", actor.display_name);
-                let footer = CreateEmbedFooter::new(text).icon_url(actor.user_icon);
-                embed = embed.footer(footer);
-            }
+        let actor = vrchat.get_user(&log.actor_id).await?;
+        if let Some(text) = match log.event_type.as_ref() {
+            "group.user.ban" => Some(format!("Banned by {}", actor.display_name)),
+            "group.user.unban" => Some(String::from("Pardoned")),
+            _ => None,
+        } {
+            /* Add the staff member and when the action was done */
+            let date_time = OffsetDateTime::parse(&log.created_at, &Rfc3339)?;
+            let timestamp = Timestamp::from_unix_timestamp(date_time.unix_timestamp())?;
+            let footer = CreateEmbedFooter::new(text).icon_url(actor.user_icon);
+            embed = embed.footer(footer).timestamp(timestamp);
+        }
 
-            /* Parse, Convert, and Add the timestamp */
+        /* Use the `VRChat` API because the `LogsDB` might not be cached yet */
+        let button = if let Some(banned_at) = member.banned_at.flatten() {
+            /* Override with more accurate data if it's available */
             let date_time = OffsetDateTime::parse(&banned_at, &Rfc3339)?;
             let timestamp = Timestamp::from_unix_timestamp(date_time.unix_timestamp())?;
             embed = embed.timestamp(timestamp);
 
-            /* Create & Add the pardon button */
-            let button = CreateButton::new("pardon")
+            CreateButton::new("pardon")
                 .emoji('⚖')
                 .label("Pardon")
-                .style(ButtonStyle::Success);
-
-            buttons.push(button);
+                .style(ButtonStyle::Success)
         } else {
-            /* Create & Add the ban button */
-            let button = CreateButton::new("ban")
+            CreateButton::new("ban")
                 .emoji('🔨')
                 .label("Ban")
-                .style(ButtonStyle::Success);
+                .style(ButtonStyle::Success)
+        };
 
-            buttons.push(button);
-        }
+        buttons.push(button);
     }
 
     /* Wrap the buttons into components then build and send the reply */

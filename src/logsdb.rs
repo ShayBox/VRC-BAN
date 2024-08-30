@@ -166,6 +166,25 @@ impl LogsDB {
         .map_err(Report::msg)
     }
 
+    /// # Get all the action logs sorted by most recent.
+    ///
+    /// # Errors
+    /// Will return `Err` if `sqlx::query_as` fails.
+    pub async fn get_all_recent_actions(&self, limit: i32) -> Result<Vec<Log>> {
+        sqlx::query_as(
+            r"
+                SELECT * FROM logs
+                WHERE event_type IN ('group.user.ban','group.user.unban')
+                ORDER BY created_at DESC
+                LIMIT ?
+             ",
+        )
+        .bind(limit)
+        .fetch_all(&self.0)
+        .await
+        .map_err(Report::msg)
+    }
+
     /// # Get all the logs sorted by most recent.
     ///
     /// # Errors
