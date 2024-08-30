@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use color_eyre::{eyre::Error, Result};
+use color_eyre::{
+    eyre::{Error, OptionExt},
+    Result,
+};
 use poise::{
     serenity_prelude::{CreateInteractionResponse as CIR, *},
     Context,
@@ -9,7 +12,7 @@ use poise::{
 };
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
-use crate::Data;
+use crate::{logsdb::Log, Data};
 
 struct Message<'a> {
     builder: CreateReply,
@@ -42,50 +45,35 @@ pub async fn pardon(
 ) -> Result<()> {
     let message = Message::new(ctx).await?;
     let Data {
-        config,
-        logsdb: _,
-        vrchat,
+        config: _,
+        logsdb,
+        vrchat: _,
     } = ctx.data();
 
     /* Parse the moderator input (uuid, name, recent) */
-    let uuids = if let Some(uuid) = uuid {
-        vec![uuid]
+    let logs = if let Some(target_id) = uuid {
+        logsdb.get_recent_logs_by_id(&target_id, 100).await
     } else if let Some(name) = name {
-        vrchat
-            .search_users(&name)
-            .await?
-            .into_iter()
-            .map(|user| user.id)
-            .collect()
+        logsdb.get_recent_logs_by_name(&name, 100).await
     } else {
-        vrchat
-            .get_group_audit_logs(&config.vrc_group_id, 100, 0)
-            .await?
-            .into_iter()
-            .filter(|log| log.event_type == "group.user.ban")
-            .filter_map(|log| log.target_id)
-            .collect()
-    };
+        logsdb.get_all_recent_logs(100).await
+    }?;
 
     /* Paginate the unique user ids */
-    paginate(ctx, message, &uuids).await
+    paginate_logs(ctx, message, &logs).await
 }
 
-async fn paginate(
+async fn paginate_logs(
     ctx: Context<'_, Data, Error>,
     message: Message<'_>,
-    uuids: &[String],
+    logs: &[Log],
 ) -> Result<()> {
-    let mut index = 0;
-    let Data {
-        config,
-        logsdb: _,
-        vrchat,
-    } = ctx.data();
+    let mut page_index = 0;
 
     'done: loop {
-        let uuid: &String = &uuids[index];
-        edit_message(ctx, &message, uuids, index).await?;
+        let log = &logs[page_index];
+        let user_id = log.target_id.clone().ok_or_eyre("None")?;
+        edit_message_embed(ctx, &message, logs, page_index).await?;
 
         /* Capture users button input in a loop until valid input is received */
         'page: while let Some(mci) = ComponentInteractionCollector::new(ctx)
@@ -94,29 +82,35 @@ async fn paginate(
             .timeout(Duration::MAX)
             .await
         {
+            let Data {
+                config,
+                logsdb: _,
+                vrchat,
+            } = ctx.data();
+
             mci.create_response(ctx, CIR::Acknowledge).await?;
             match mci.data.custom_id.as_ref() {
                 "last" => {
                     message.reply.edit(ctx, message.builder.clone()).await?;
-                    index -= 1;
+                    page_index -= 1;
 
                     break 'page;
                 }
                 "next" => {
                     message.reply.edit(ctx, message.builder.clone()).await?;
-                    index += 1;
+                    page_index += 1;
 
                     break 'page;
                 }
                 "pardon" => {
                     message.reply.delete(ctx).await?;
-                    vrchat.pardon_member(&config.vrc_group_id, uuid).await?;
+                    vrchat.pardon_member(&config.vrc_group_id, &user_id).await?;
 
                     break 'done;
                 }
                 "ban" => {
                     message.reply.delete(ctx).await?;
-                    vrchat.ban_member(&config.vrc_group_id, uuid).await?;
+                    vrchat.ban_member(&config.vrc_group_id, &user_id).await?;
 
                     break 'done;
                 }
@@ -128,21 +122,22 @@ async fn paginate(
     Ok(())
 }
 
-async fn edit_message(
+async fn edit_message_embed(
     ctx: Context<'_, Data, Error>,
     message: &Message<'_>,
-    uuids: &[String],
+    logs: &[Log],
     index: usize,
 ) -> Result<()> {
     let Data {
         config,
-        logsdb,
+        logsdb: _,
         vrchat,
     } = ctx.data();
 
     /* Get the user and member */
-    let user_id = &uuids[index];
-    let user = vrchat.get_user(user_id).await?;
+    let log = &logs[index];
+    let user_id = log.target_id.clone().ok_or_eyre("None")?;
+    let user = vrchat.get_user(&user_id).await?;
 
     /* Fallback to the avatar thumbnail without VRC+ */
     let mut url = user.profile_pic_override_thumbnail;
@@ -181,7 +176,7 @@ async fn edit_message(
 
         buttons.push(button);
     }
-    if index < uuids.len() {
+    if index < logs.len() {
         let button = CreateButton::new("next")
             .emoji('➡')
             .label("Next")
@@ -190,22 +185,21 @@ async fn edit_message(
         buttons.push(button);
     }
 
-    if let Ok(member) = vrchat.get_group_member(&config.vrc_group_id, user_id).await {
+    /* Use the `VRChat` API because the `LogsDB` might not be cached yet */
+    if let Ok(member) = vrchat
+        .get_group_member(&config.vrc_group_id, &user_id)
+        .await
+    {
         if let Some(banned_at) = member.banned_at.flatten() {
-            /* Search the logs database for the users most recent ban/unban */
-            let logs = logsdb.find_recent_logs(user_id, 100).await?;
-
-            if let Some(log) = logs.first() {
-                if let Some(action) = match log.event_type.as_ref() {
-                    "user.group.ban" => Some("Banned"),
-                    "user.group.unban" => Some("Pardoned"),
-                    _ => None,
-                } {
-                    let actor = vrchat.get_user(&log.actor_id).await?;
-                    let text = format!("{action} by {}", actor.display_name);
-                    let footer = CreateEmbedFooter::new(text).icon_url(actor.user_icon);
-                    embed = embed.footer(footer);
-                }
+            if let Some(action) = match log.event_type.as_ref() {
+                "user.group.ban" => Some("Banned"),
+                "user.group.unban" => Some("Pardoned"),
+                _ => None,
+            } {
+                let actor = vrchat.get_user(&log.actor_id).await?;
+                let text = format!("{action} by {}", actor.display_name);
+                let footer = CreateEmbedFooter::new(text).icon_url(actor.user_icon);
+                embed = embed.footer(footer);
             }
 
             /* Parse, Convert, and Add the timestamp */
