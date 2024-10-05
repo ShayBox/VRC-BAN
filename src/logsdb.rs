@@ -3,10 +3,10 @@ use serde_json::Value;
 use sqlx::{mysql::MySqlQueryResult, prelude::*, MySqlPool};
 use vrchatapi::models::GroupAuditLogEntry;
 
-/// Wrapper around sqlx::MySqlPool
+/// Wrapper around `sqlx::MySqlPool`
 pub struct LogsDB(pub MySqlPool);
 
-/// GroupAuditLogEntry is not strict
+/// `GroupAuditLogEntry` is not strict
 #[derive(Clone, Debug, FromRow)]
 pub struct Log {
     pub id: String,
