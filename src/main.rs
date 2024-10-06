@@ -1,9 +1,5 @@
 use color_eyre::Result;
 use derive_config::DeriveTomlConfig;
-#[cfg(not(debug_assertions))]
-use poise::samples::register_globally;
-#[cfg(debug_assertions)]
-use poise::samples::register_in_guild;
 use poise::{serenity_prelude::*, Framework, FrameworkOptions};
 use vrc_ban::{commands::prelude::*, config::Config, logsdb::LogsDB, vrchat::VRChat, Data};
 
@@ -11,7 +7,8 @@ use vrc_ban::{commands::prelude::*, config::Config, logsdb::LogsDB, vrchat::VRCh
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let config = Config::load()?;
+    /* Load Config, LogsDB, and VRChat */
+    let mut config = Config::load()?;
     let logsdb = LogsDB::connect(&config.sql_secret).await?;
     let vrchat = VRChat::new(
         &config.vrc_cookies,
@@ -20,30 +17,23 @@ async fn main() -> Result<()> {
         &config.user_agent,
     )?;
 
+    /* Login to VRChat and save cookies */
+    vrchat.login_and_verify(&config.vrc_secret).await?;
+    config.vrc_cookies = vrchat.get_cookies();
+    config.save()?;
+
     let framework = {
         let config = config.clone();
         Framework::builder()
             .options(FrameworkOptions {
                 commands: vec![cheers(), pardon(), help()],
+                event_handler: |ctx, event, framework, data| {
+                    Box::pin(data.event_handler(ctx, event, framework))
+                },
                 ..Default::default()
             })
-            .setup(move |ctx, _ready, framework| {
-                Box::pin(async move {
-                    #[cfg(debug_assertions)]
-                    let guild_id = GuildId::new(824_865_729_445_888_041);
-                    let commands = &framework.options().commands;
-
-                    #[cfg(debug_assertions)]
-                    register_in_guild(ctx, commands, guild_id).await?;
-                    #[cfg(not(debug_assertions))]
-                    register_globally(ctx, commands).await?;
-
-                    Ok(Data {
-                        config,
-                        logsdb,
-                        vrchat,
-                    })
-                })
+            .setup(move |ctx, ready, framework| {
+                Box::pin(Data::new(config, logsdb, vrchat).setup(ctx, ready, framework))
             })
             .build()
     };

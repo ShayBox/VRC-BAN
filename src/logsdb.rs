@@ -64,103 +64,19 @@ impl LogsDB {
             .map_err(Report::msg)
     }
 
-    /// # Find the most recent matching action log (ban or pardon)
+    /// # Get the most recent matching action logs (bans and pardons)
     ///
     /// # Errors
     /// Will return `Err` if `sqlx::query_as` fails.
-    pub async fn get_recent_action_by_name(&self, name: &str) -> Result<Log> {
-        let logs = self.get_recent_actions_by_name(name, 1).await?;
-        let log = logs.first().ok_or_eyre("None")?.clone();
-
-        Ok(log)
-    }
-
-    /// # Find the most recent matching action logs (bans and pardons)
-    ///
-    /// # Errors
-    /// Will return `Err` if `sqlx::query_as` fails.
-    pub async fn get_recent_actions_by_name(&self, name: &str, limit: i32) -> Result<Vec<Log>> {
+    pub async fn get_recent_actions_by_id(&self, target_id: &str) -> Result<Vec<Log>> {
         sqlx::query_as(
             r"
                 SELECT * FROM logs
-                WHERE actor_display_name = ? AND (event_type = 'user.group.ban' OR event_type = 'user.group.unban')
+                WHERE target_id = ? AND (event_type = 'group.user.ban' OR event_type = 'group.user.unban')
                 ORDER BY created_at DESC
-                LIMIT ?
-             ",
-        )
-        .bind(name)
-        .bind(limit)
-        .fetch_all(&self.0)
-        .await
-        .map_err(Report::msg)
-    }
-
-    /// # Get all the matching logs sorted by most recent.
-    ///
-    /// # Errors
-    /// Will return `Err` if `sqlx::query_as` fails.
-    pub async fn get_recent_logs_by_name(&self, name: &str, limit: i32) -> Result<Vec<Log>> {
-        sqlx::query_as(
-            r"
-                SELECT * FROM logs
-                WHERE actor_display_name = ?
-                ORDER BY created_at DESC
-                LIMIT ?
-             ",
-        )
-        .bind(name)
-        .bind(limit)
-        .fetch_all(&self.0)
-        .await
-        .map_err(Report::msg)
-    }
-
-    /// # Find the most recent matching action log (ban or pardon)
-    ///
-    /// # Errors
-    /// Will return `Err` if `sqlx::query_as` fails.
-    pub async fn get_recent_action_by_id(&self, target_id: &str) -> Result<Log> {
-        let logs = self.get_recent_actions_by_id(target_id, 1).await?;
-        let log = logs.first().ok_or_eyre("None")?.clone();
-
-        Ok(log)
-    }
-
-    /// # Find the most recent matching action logs (bans and pardons)
-    ///
-    /// # Errors
-    /// Will return `Err` if `sqlx::query_as` fails.
-    pub async fn get_recent_actions_by_id(&self, target_id: &str, limit: i32) -> Result<Vec<Log>> {
-        sqlx::query_as(
-            r"
-                SELECT * FROM logs
-                WHERE target_id = ? AND (event_type = 'user.group.ban' OR event_type = 'user.group.unban')
-                ORDER BY created_at DESC
-                LIMIT ?
-             ",
-        )
-        .bind(limit)
-        .bind(target_id)
-        .fetch_all(&self.0)
-        .await
-        .map_err(Report::msg)
-    }
-
-    /// # Get all the matching logs sorted by most recent.
-    ///
-    /// # Errors
-    /// Will return `Err` if `sqlx::query_as` fails.
-    pub async fn get_recent_logs_by_id(&self, target_id: &str, limit: i32) -> Result<Vec<Log>> {
-        sqlx::query_as(
-            r"
-                SELECT * FROM logs
-                WHERE target_id = ?
-                ORDER BY created_at DESC
-                LIMIT ?
              ",
         )
         .bind(target_id)
-        .bind(limit)
         .fetch_all(&self.0)
         .await
         .map_err(Report::msg)
@@ -170,69 +86,13 @@ impl LogsDB {
     ///
     /// # Errors
     /// Will return `Err` if `sqlx::query_as` fails.
-    pub async fn get_all_recent_actions(&self, limit: i32) -> Result<Vec<Log>> {
+    pub async fn get_all_recent_actions(&self) -> Result<Vec<Log>> {
         sqlx::query_as(
             r"
                 SELECT * FROM logs
                 WHERE event_type IN ('group.user.ban','group.user.unban')
                 ORDER BY created_at DESC
-                LIMIT ?
              ",
-        )
-        .bind(limit)
-        .fetch_all(&self.0)
-        .await
-        .map_err(Report::msg)
-    }
-
-    /// # Get all the logs sorted by most recent.
-    ///
-    /// # Errors
-    /// Will return `Err` if `sqlx::query_as` fails.
-    pub async fn get_all_recent_logs(&self, limit: i32) -> Result<Vec<Log>> {
-        sqlx::query_as(
-            r"
-                SELECT * FROM logs
-                ORDER BY created_at DESC
-                LIMIT ?
-             ",
-        )
-        .bind(limit)
-        .fetch_all(&self.0)
-        .await
-        .map_err(Report::msg)
-    }
-
-    /// # Get the staff statistics
-    ///
-    /// # Errors
-    /// Will return `Err` if `sqlx::query_as` fails.
-    pub async fn get_staff_stats(&self) -> Result<Vec<StaffStats>> {
-        sqlx::query_as(
-            r"
-                WITH LatestNames AS (
-                    SELECT id, actor_display_name
-                    FROM logs
-                    WHERE actor_display_name IS NOT NULL
-                    AND event_type IN ('group.user.ban', 'group.instance.kick', 'group.instance.warn')
-                    AND created_at = (
-                        SELECT MAX(created_at)
-                        FROM logs l2
-                        WHERE l2.id = logs.id
-                        AND l2.actor_display_name IS NOT NULL
-                    )
-                )
-                SELECT DISTINCT ln.actor_display_name AS username,    
-                    COUNT(CASE WHEN l.event_type = 'group.user.ban' THEN 1 END) AS all_bans,
-                    COUNT(CASE WHEN l.event_type = 'group.instance.kick' THEN 1 END) AS all_kick,
-                    COUNT(CASE WHEN l.event_type = 'group.instance.warn' THEN 1 END) AS all_warn,
-                    COUNT(CASE WHEN l.event_type = 'group.user.ban' AND l.created_at > NOW() - INTERVAL 1 DAY THEN 1 END) AS new_bans,
-                    COUNT(CASE WHEN l.event_type = 'group.instance.kick' AND l.created_at > NOW() - INTERVAL 1 DAY THEN 1 END) AS new_kick,
-                    COUNT(CASE WHEN l.event_type = 'group.instance.warn' AND l.created_at > NOW() - INTERVAL 1 DAY THEN 1 END) AS new_warn
-                FROM logs l
-                JOIN LatestNames ln ON l.id = ln.id
-                GROUP BY ln.actor_display_name
-            ",
         )
         .fetch_all(&self.0)
         .await

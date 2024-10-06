@@ -1,18 +1,10 @@
 [package]
 name = "vrc-ban"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Shayne Hartford <shaybox@shaybox.com>"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[[bin]]
-name = "vrc-ban-bot"
-path = "src/bin/bot.rs"
-
-[[bin]]
-name = "vrc-ban-log"
-path = "src/bin/log.rs"
 
 [dependencies]
 color-eyre = { version = "0.6", default-features = false }

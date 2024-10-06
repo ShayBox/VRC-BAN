@@ -47,17 +47,22 @@ pub async fn pardon(
     let Data {
         config: _,
         logsdb,
-        vrchat: _,
+        vrchat,
     } = ctx.data();
 
-    /* Parse the moderator input (uuid, name, recent) */
-    let logs = if let Some(target_id) = uuid {
-        logsdb.get_recent_actions_by_id(&target_id, 100).await
-    } else if let Some(name) = name {
-        logsdb.get_recent_actions_by_name(&name, 100).await
+    /* Parse the moderator input (name, uuid, recent) */
+    let logs = if let Some(search) = name {
+        let users = vrchat.search_users(&search).await?;
+        let Some(user) = users.first() else {
+            bail!("No user found")
+        };
+
+        logsdb.get_recent_actions_by_id(&user.id).await?
+    } else if let Some(target_id) = uuid {
+        logsdb.get_recent_actions_by_id(&target_id).await?
     } else {
-        logsdb.get_all_recent_actions(100).await
-    }?;
+        logsdb.get_all_recent_actions().await?
+    };
 
     /* Paginate the unique user ids */
     paginate_logs(ctx, message, &logs).await
