@@ -42,10 +42,10 @@ impl Data {
         let commands = &framework.options().commands;
 
         #[cfg(debug_assertions)]
-        poise::samples::register_in_guild(ctx, commands, guild_id).await?;
+        poise::builtins::register_in_guild(ctx, commands, guild_id).await?;
 
         #[cfg(not(debug_assertions))]
-        poise::samples::register_globally(ctx, commands).await?;
+        poise::builtins::register_globally(ctx, commands).await?;
 
         Ok(self)
     }
