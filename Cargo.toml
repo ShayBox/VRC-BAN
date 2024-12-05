@@ -1,6 +1,6 @@
 [package]
 name = "vrc-ban"
-version = "0.6.1"
+version = "0.6.2"
 authors = ["Shayne Hartford <shaybox@shaybox.com>"]
 edition = "2021"
 

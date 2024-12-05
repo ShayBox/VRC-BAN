@@ -61,7 +61,7 @@ impl VRChat {
             .build()?;
 
         /* Add the cookies to the cookie store */
-        let request_url = Url::parse("https://vrchat.com/api/1")?;
+        let request_url = Url::parse("https://api.vrchat.com/api/1")?;
         for cookie_str in cookies {
             cookie
                 .write()
