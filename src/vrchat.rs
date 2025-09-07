@@ -23,7 +23,7 @@ use vrchatapi::{
         EitherUserOrTwoFactor,
         GroupLimitedMember,
         GroupMember,
-        LimitedUser,
+        LimitedUserSearch,
         TwoFactorAuthCode,
         User,
     },
@@ -137,6 +137,9 @@ impl VRChat {
             Some(offset),
             None,
             None,
+            None,
+            None,
+            None,
         )
         .await?;
 
@@ -202,7 +205,7 @@ impl VRChat {
     ///
     /// # Errors
     /// Will return `Err` if `search_users` fails.
-    pub async fn search_users(&self, search: &str) -> Result<Vec<LimitedUser>> {
+    pub async fn search_users(&self, search: &str) -> Result<Vec<LimitedUserSearch>> {
         let mut users = Vec::new();
         let mut offset = 0;
 

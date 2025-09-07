@@ -1,6 +1,6 @@
 [package]
 name = "vrc-ban"
-version = "0.6.2"
+version = "0.6.3"
 authors = ["Shayne Hartford <shaybox@shaybox.com>"]
 edition = "2021"
 
@@ -11,14 +11,14 @@ color-eyre = { version = "0.6", default-features = false }
 derive-config = { version = "2", features = ["dirs", "toml"] }
 poise = { version = "0.6", features = ["collector"] }
 reqwest = { version = "0.12", default-features = false }
-reqwest_cookie_store = { version = "0.8", features = ["serde"] }
+reqwest_cookie_store = { version = "0.9", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sqlx = { version = "0.8", features = ["mysql"] }
 time = { version = "0.3", features = ["serde"] }
 tokio = { version = "1", features = ["macros"] }
 totp = { version = "5", package = "totp-rs" }
-vrchatapi = { git = "https://github.com/Shays-Forks/vrchatapi-rust" }
+vrchatapi = { version = "1", default-features = false }
 
 [features]
 default = ["rustls-tls"]
