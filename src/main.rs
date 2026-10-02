@@ -1,14 +1,21 @@
 use color_eyre::Result;
 use derive_config::DeriveTomlConfig;
+#[cfg(feature = "discord")]
 use poise::{serenity_prelude::*, Framework, FrameworkOptions};
-use vrc_ban::{commands::prelude::*, config::Config, logsdb::LogsDB, vrchat::VRChat, Data};
+#[cfg(feature = "discord")]
+use vrc_ban::commands::prelude::*;
+use vrc_ban::{config::Config, logsdb::LogsDB, vrchat::VRChat, Data};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    /* Load Config, LogsDB, and VRChat */
-    let mut config = Config::load()?;
+    /* Load the config, or run the setup wizard if it doesn't exist yet */
+    let mut config = if Config::exists()? {
+        Config::load()?
+    } else {
+        Config::setup_wizard()?
+    };
     let logsdb = LogsDB::connect(&config.sql_secret).await?;
     let vrchat = VRChat::new(
         &config.vrc_cookies,
@@ -22,9 +29,10 @@ async fn main() -> Result<()> {
     config.vrc_cookies = vrchat.get_cookies();
     config.save()?;
 
-    let framework = {
-        let config = config.clone();
-        Framework::builder()
+    #[cfg(feature = "discord")]
+    {
+        let bot_secret = config.bot_secret.clone();
+        let framework = Framework::builder()
             .options(FrameworkOptions {
                 commands: vec![cheers(), pardon(), help()],
                 event_handler: |ctx, event, framework, data| {
@@ -35,15 +43,20 @@ async fn main() -> Result<()> {
             .setup(move |ctx, ready, framework| {
                 Box::pin(Data::new(config, logsdb, vrchat).setup(ctx, ready, framework))
             })
-            .build()
-    };
+            .build();
 
-    let intent = GatewayIntents::non_privileged() | GatewayIntents::GUILDS;
-    let mut client = ClientBuilder::new(&config.bot_secret, intent)
-        .framework(framework)
-        .await?;
+        let intent = GatewayIntents::non_privileged() | GatewayIntents::GUILDS;
+        let mut client = ClientBuilder::new(&bot_secret, intent)
+            .framework(framework)
+            .await?;
 
-    client.start().await?;
+        client.start().await?;
+    }
+
+    #[cfg(not(feature = "discord"))]
+    {
+        Data::new(config, logsdb, vrchat).sync_logs().await;
+    }
 
     Ok(())
 }

@@ -1,6 +1,6 @@
 [package]
 name = "vrc-ban"
-version = "0.6.3"
+version = "0.7.0"
 authors = ["Shayne Hartford <shaybox@shaybox.com>"]
 edition = "2021"
 
@@ -9,21 +9,21 @@ edition = "2021"
 [dependencies]
 color-eyre = { version = "0.6", default-features = false }
 derive-config = { version = "2", features = ["dirs", "toml"] }
-poise = { version = "0.6", features = ["collector"] }
-reqwest = { version = "0.12", default-features = false }
-reqwest_cookie_store = { version = "0.9", features = ["serde"] }
+poise = { version = "0.6", features = ["collector"], optional = true }
+reqwest = { version = "0.13", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sqlx = { version = "0.8", features = ["mysql"] }
-time = { version = "0.3", features = ["serde"] }
+time = { version = "0.3", features = ["serde"], optional = true }
 tokio = { version = "1", features = ["macros"] }
 totp = { version = "5", package = "totp-rs" }
 vrchatapi = { version = "1", default-features = false }
 
 [features]
-default = ["rustls-tls"]
+default = ["discord", "rustls-tls"]
+discord = ["dep:poise", "dep:time"]
 native-tls = ["reqwest/native-tls", "sqlx/runtime-tokio-native-tls"]
-rustls-tls = ["reqwest/rustls-tls", "sqlx/runtime-tokio-rustls"]
+rustls-tls = ["reqwest/rustls", "sqlx/runtime-tokio-rustls"]
 
 [profile.dev]
 opt-level = 1

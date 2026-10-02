@@ -148,31 +148,22 @@ async fn edit_message_embed(
     let user_id = log.target_id.clone().ok_or_eyre("None")?;
     let user = vrchat.get_user(&user_id).await?;
 
-    /* Fallback to the avatar thumbnail without VRC+ */
-    let mut url = user.profile_pic_override_thumbnail;
-    if url.is_empty() {
-        url = user.current_avatar_thumbnail_image_url;
-    }
-
     /* Create the embed with information */
     let author = CreateEmbedAuthor::new(user.display_name)
-        .icon_url(user.user_icon)
+        .icon_url(user.icon_url.clone().unwrap_or_default())
         .url(format!("https://vrchat.com/home/user/{user_id}"));
-    let mut embed = CreateEmbed::default()
-        .author(author)
-        .description(user.bio)
-        .image(url);
+    let mut embed = CreateEmbed::default().author(author);
 
-    /* Add the badges (Supporter, Early Supporter) */
-    if let Some(badges) = user.badges {
-        let badges = badges
-            .into_iter()
-            .map(|badge| badge.badge_name)
-            .collect::<Vec<_>>();
-
-        if !badges.is_empty() {
-            embed = embed.field("Badges", badges.join(", "), true);
+    /* Use the profile icon as the image when available */
+    if let Some(url) = user.icon_url.as_deref() {
+        if !url.is_empty() {
+            embed = embed.image(url.to_owned());
         }
+    }
+
+    /* Show the status text in place of a bio */
+    if !user.status_description.is_empty() {
+        embed = embed.description(user.status_description.clone());
     }
 
     /* Create and Add the last and next buttons */
@@ -207,15 +198,19 @@ async fn edit_message_embed(
             /* Add the staff member and when the action was done */
             let date_time = OffsetDateTime::parse(&log.created_at, &Rfc3339)?;
             let timestamp = Timestamp::from_unix_timestamp(date_time.unix_timestamp())?;
-            let footer = CreateEmbedFooter::new(text).icon_url(actor.user_icon);
+            let mut footer = CreateEmbedFooter::new(text);
+            if let Some(icon) = actor.icon_url.as_deref() {
+                if !icon.is_empty() {
+                    footer = footer.icon_url(icon.to_owned());
+                }
+            }
             embed = embed.footer(footer).timestamp(timestamp);
         }
 
         /* Use the `VRChat` API because the `LogsDB` might not be cached yet */
         let button = if let Some(banned_at) = member.banned_at.flatten() {
             /* Override with more accurate data if it's available */
-            let date_time = OffsetDateTime::parse(&banned_at, &Rfc3339)?;
-            let timestamp = Timestamp::from_unix_timestamp(date_time.unix_timestamp())?;
+            let timestamp = Timestamp::from_unix_timestamp(banned_at.timestamp())?;
             embed = embed.timestamp(timestamp);
 
             CreateButton::new("pardon")

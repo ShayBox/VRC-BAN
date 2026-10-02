@@ -40,7 +40,7 @@ impl TryFrom<GroupAuditLogEntry> for Log {
     fn try_from(log: GroupAuditLogEntry) -> Result<Self, Self::Error> {
         Ok(Self {
             id: log.id.ok_or_eyre("id")?,
-            created_at: log.created_at.ok_or_eyre("created_at")?,
+            created_at: log.created_at.ok_or_eyre("created_at")?.to_rfc3339(),
             group_id: log.group_id.ok_or_eyre("group_id")?,
             actor_id: log.actor_id.ok_or_eyre("actor_id")?,
             actor_display_name: log.actor_display_name,
@@ -129,6 +129,6 @@ impl LogsDB {
         .bind(log.data)
         .execute(&self.0)
         .await
-        .map_err(Report::msg)
+        .map_err(Into::into)
     }
 }

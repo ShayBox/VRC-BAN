@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
 use color_eyre::{eyre::eyre, Result};
-use reqwest::{Client, Url};
-use reqwest_cookie_store::CookieStoreRwLock;
+use reqwest::{
+    cookie::{CookieStore, Jar},
+    Client,
+    Url,
+};
 use totp::{Algorithm, Secret, TOTP};
 use vrchatapi::{
     apis::{
@@ -15,15 +18,15 @@ use vrchatapi::{
             GetGroupMemberError,
             UnbanGroupMemberError,
         },
-        users_api::{self, GetUserError},
+        users_api,
         Error,
     },
     models::{
         BanGroupMemberRequest,
-        EitherUserOrTwoFactor,
-        GroupLimitedMember,
+        GetUser200Response,
         GroupMember,
         LimitedUserSearch,
+        RegisterUserAccount200Response,
         TwoFactorAuthCode,
         User,
     },
@@ -33,20 +36,20 @@ use crate::logsdb::Log;
 
 pub const MAX: i32 = 100;
 
+/// Base URL of the `VRChat` API (also used to scope cookies)
+const API_BASE_URL: &str = "https://api.vrchat.cloud/api/1";
+
 /// `VRChat` API config & cookie wrapper
 pub struct VRChat {
     config: Configuration,
-    cookie: Arc<CookieStoreRwLock>,
+    cookie: Arc<Jar>,
 }
 
 impl VRChat {
     /// # Create a new `VRChat` instance
     ///
     /// # Errors
-    /// Will return `Err` if `ClientBuilder::build` fails.
-    ///
-    /// # Panics
-    /// Will panic if `RwLock::write` fails.
+    /// Will return `Err` if `ClientBuilder::build` or `Url::parse` fails.
     pub fn new(
         cookies: &Vec<String>,
         username: &str,
@@ -54,30 +57,23 @@ impl VRChat {
         user_agent: &str,
     ) -> Result<Self> {
         /* Create the cookie store and client */
-        let cookie = Arc::new(CookieStoreRwLock::default());
-        let client = Client::builder()
-            .cookie_store(true)
-            .cookie_provider(cookie.clone())
-            .build()?;
+        let cookie = Arc::new(Jar::default());
+        let client = Client::builder().cookie_provider(cookie.clone()).build()?;
 
         /* Add the cookies to the cookie store */
-        let request_url = Url::parse("https://api.vrchat.com/api/1")?;
+        let request_url = Url::parse(API_BASE_URL)?;
         for cookie_str in cookies {
-            cookie
-                .write()
-                .expect("Failed to lock")
-                .parse(cookie_str, &request_url)?;
+            cookie.add_cookie_str(cookie_str, &request_url);
         }
 
-        Ok(Self {
-            cookie,
-            config: Configuration {
-                client,
-                basic_auth: Some((username.to_owned(), Some(password.to_owned()))),
-                user_agent: Some(user_agent.to_owned()),
-                ..Default::default()
-            },
-        })
+        /* Build the API configuration around our client */
+        let mut config = Configuration::new();
+        config.client = client.into();
+        config.basic_auth = Some((username.to_owned(), Some(password.to_owned())));
+        config.user_agent = Some(user_agent.to_owned());
+        config.debug = true;
+
+        Ok(Self { config, cookie })
     }
 
     /// # Login and Verify 2FA
@@ -85,9 +81,9 @@ impl VRChat {
     /// # Errors
     /// Will return `Err` if `get_current_user` or `verify2_fa` fails.
     pub async fn login_and_verify(&self, secret: &str) -> Result<()> {
-        if let EitherUserOrTwoFactor::RequiresTwoFactorAuth(_) =
-            authentication_api::get_current_user(&self.config).await?
-        {
+        let current_user = authentication_api::get_current_user(&self.config).await?;
+
+        if let RegisterUserAccount200Response::RequiresTwoFactorAuth(_) = current_user {
             // Obtain the current TOTP code using saved TOTP
             let secret = Secret::Encoded(secret.to_owned()).to_bytes()?;
             let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret)?;
@@ -107,14 +103,22 @@ impl VRChat {
     /// # Get the cookies in the cookie store
     ///
     /// # Panics
-    /// Will panic if `RwLock::read` fails.
+    /// Will panic if `API_BASE_URL` is not a valid URL.
     #[must_use]
     pub fn get_cookies(&self) -> Vec<String> {
-        self.cookie
-            .read()
-            .unwrap()
-            .iter_any()
-            .map(|cookie| cookie.to_string())
+        let url = Url::parse(API_BASE_URL).expect("valid URL");
+        let Some(value) = self.cookie.cookies(&url) else {
+            return Vec::new();
+        };
+        let Ok(combined) = value.to_str() else {
+            return Vec::new();
+        };
+
+        combined
+            .split("; ")
+            .map(str::trim)
+            .filter(|cookie| !cookie.is_empty())
+            .map(str::to_owned)
             .collect()
     }
 
@@ -162,7 +166,7 @@ impl VRChat {
         &self,
         group_id: &str,
         user_id: &str,
-    ) -> Result<GroupLimitedMember, Error<GetGroupMemberError>> {
+    ) -> Result<GroupMember, Error<GetGroupMemberError>> {
         groups_api::get_group_member(&self.config, group_id, user_id).await
     }
 
@@ -196,9 +200,12 @@ impl VRChat {
     /// # Get a user
     ///
     /// # Errors
-    /// Will return `Err` if `get_user` fails.
-    pub async fn get_user(&self, user_id: &str) -> Result<User, Error<GetUserError>> {
-        users_api::get_user(&self.config, user_id).await
+    /// Will return `Err` if `get_user` fails or returns an unexpected response.
+    pub async fn get_user(&self, user_id: &str) -> Result<User> {
+        match users_api::get_user(&self.config, user_id).await? {
+            GetUser200Response::User(user) => Ok(user),
+            GetUser200Response::CurrentUser(_) => Err(eyre!("Unexpected current-user response")),
+        }
     }
 
     /// # Search for a user
@@ -216,7 +223,8 @@ impl VRChat {
                 Some(search),
                 None,
                 Some(MAX),
-                Some(offset)
+                Some(offset),
+                None
             ).await?;
 
             if new.is_empty() {

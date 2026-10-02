@@ -1,0 +1,13 @@
+[tasks.upload-server-cloudstation]
+dependencies = ["build-server-aarch64"]
+workspace = false
+script = [
+    "ssh shaybox@cloudstation systemctl --user stop vrc-ban",
+    "scp target/aarch64-unknown-linux-gnu/debug/vrc-ban shaybox@cloudstation:/home/shaybox/.cargo/bin/vrc-ban",
+    "ssh shaybox@cloudstation systemctl --user start vrc-ban",
+]
+
+[tasks.build-server-aarch64]
+workspace = false
+command = "cargo"
+args = ["cross", "build", "--profile", "dev", "--target", "aarch64-unknown-linux-gnu"]
