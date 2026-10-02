@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
         let bot_secret = config.bot_secret.clone();
         let framework = Framework::builder()
             .options(FrameworkOptions {
-                commands: vec![cheers(), pardon(), help()],
+                commands: vec![cheers(), pardon(), purge(), help()],
                 event_handler: |ctx, event, framework, data| {
                     Box::pin(data.event_handler(ctx, event, framework))
                 },

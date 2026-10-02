@@ -1,1 +1,1 @@
-pub use super::{cheers::*, help::*, pardon::*};
+pub use super::{cheers::*, help::*, pardon::*, purge::*};

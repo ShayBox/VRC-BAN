@@ -1,9 +1,12 @@
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use color_eyre::{eyre::eyre, Result};
 use reqwest::{
     cookie::{CookieStore, Jar},
     Client,
+    StatusCode,
     Url,
 };
 use totp::{Algorithm, Secret, TOTP};
@@ -15,6 +18,7 @@ use vrchatapi::{
             self,
             BanGroupMemberError,
             GetGroupAuditLogsError,
+            GetGroupBansError,
             GetGroupMemberError,
             UnbanGroupMemberError,
         },
@@ -35,6 +39,15 @@ use vrchatapi::{
 use crate::logsdb::Log;
 
 pub const MAX: i32 = 100;
+
+/// Initial delay before retrying a rate limited request
+const INITIAL_RETRY_DELAY: Duration = Duration::from_secs(5);
+
+/// Maximum delay between retries of a rate limited request
+const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
+
+/// Maximum number of times to retry a rate limited request
+const MAX_RETRIES: u32 = 8;
 
 /// Base URL of the `VRChat` API (also used to scope cookies)
 const API_BASE_URL: &str = "https://api.vrchat.cloud/api/1";
@@ -170,6 +183,45 @@ impl VRChat {
         groups_api::get_group_member(&self.config, group_id, user_id).await
     }
 
+    /// # Get all the banned group members
+    ///
+    /// # Errors
+    /// Will return `Err` if `get_group_bans` fails.
+    pub async fn get_group_bans(
+        &self,
+        group_id: &str,
+    ) -> Result<Vec<GroupMember>, Error<GetGroupBansError>> {
+        let mut bans = Vec::new();
+        let mut offset = 0;
+
+        loop {
+            #[rustfmt::skip]
+            let new = retry_rate_limited(|| {
+                groups_api::get_group_bans(
+                    &self.config,
+                    group_id,
+                    Some(MAX),
+                    Some(offset)
+                )
+            }).await?;
+
+            if new.is_empty() {
+                break; // There are no bans
+            }
+
+            let len = bans.len();
+            bans.extend(new);
+
+            if bans.len() == len {
+                break; // There were no new bans
+            }
+
+            offset += MAX;
+        }
+
+        Ok(bans)
+    }
+
     /// # Ban a group member
     ///
     /// # Errors
@@ -179,8 +231,11 @@ impl VRChat {
         group_id: &str,
         user_id: &str,
     ) -> Result<GroupMember, Error<BanGroupMemberError>> {
-        let ban_group_member_request = BanGroupMemberRequest::new(user_id.to_owned());
-        groups_api::ban_group_member(&self.config, group_id, ban_group_member_request).await
+        retry_rate_limited(|| {
+            let request = BanGroupMemberRequest::new(user_id.to_owned());
+            groups_api::ban_group_member(&self.config, group_id, request)
+        })
+        .await
     }
 
     /// # Pardon a group member
@@ -192,7 +247,7 @@ impl VRChat {
         group_id: &str,
         user_id: &str,
     ) -> Result<GroupMember, Error<UnbanGroupMemberError>> {
-        groups_api::unban_group_member(&self.config, group_id, user_id).await
+        retry_rate_limited(|| groups_api::unban_group_member(&self.config, group_id, user_id)).await
     }
 
     /* Users API */
@@ -242,5 +297,33 @@ impl VRChat {
         }
 
         Ok(users)
+    }
+}
+
+/// # Retry a rate limited API call
+///
+/// Retries the operation while it is rate limited (HTTP 429), waiting with
+/// exponential backoff starting at `INITIAL_RETRY_DELAY`, doubling each time,
+/// and capped at `MAX_RETRY_DELAY` for up to `MAX_RETRIES` retries.
+async fn retry_rate_limited<T, E, F, Fut>(mut operation: F) -> Result<T, Error<E>>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, Error<E>>>,
+{
+    let mut delay = INITIAL_RETRY_DELAY;
+    let mut attempt = 0;
+
+    loop {
+        match operation().await {
+            Ok(value) => return Ok(value),
+            Err(Error::ResponseError(content))
+                if content.status == StatusCode::TOO_MANY_REQUESTS && attempt < MAX_RETRIES =>
+            {
+                tokio::time::sleep(delay).await;
+                delay = (delay * 2).min(MAX_RETRY_DELAY);
+                attempt += 1;
+            }
+            Err(error) => return Err(error),
+        }
     }
 }

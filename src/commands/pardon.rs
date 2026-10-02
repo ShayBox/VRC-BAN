@@ -29,7 +29,7 @@ impl Message<'_> {
     }
 }
 
-/// Pardon (unban) a user from Stoner Booth.
+/// Pardon (unban) a user from the group.
 /// Search is sorted most by most recent bans by default.
 #[allow(clippy::too_many_lines)]
 #[poise::command(
