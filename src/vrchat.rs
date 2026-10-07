@@ -1,6 +1,4 @@
-use std::future::Future;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{future::Future, sync::Arc, time::Duration};
 
 use color_eyre::{eyre::eyre, Result};
 use reqwest::{
@@ -257,7 +255,9 @@ impl VRChat {
     /// # Errors
     /// Will return `Err` if `get_user` fails or returns an unexpected response.
     pub async fn get_user(&self, user_id: &str) -> Result<User> {
-        match users_api::get_user(&self.config, user_id).await? {
+        let response = retry_rate_limited(|| users_api::get_user(&self.config, user_id)).await?;
+
+        match response {
             GetUser200Response::User(user) => Ok(user),
             GetUser200Response::CurrentUser(_) => Err(eyre!("Unexpected current-user response")),
         }

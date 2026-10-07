@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use color_eyre::{eyre::OptionExt, Report, Result};
 use serde_json::Value;
 use sqlx::{mysql::MySqlQueryResult, prelude::*, MySqlPool};
@@ -97,6 +99,27 @@ impl LogsDB {
         .fetch_all(&self.0)
         .await
         .map_err(Report::msg)
+    }
+
+    /// # Get how many times each user has been banned
+    ///
+    /// Maps `target_id` to the number of `group.user.ban` logs stored for it.
+    ///
+    /// # Errors
+    /// Will return `Err` if `sqlx::query_as` fails.
+    pub async fn get_ban_counts(&self) -> Result<HashMap<String, i64>> {
+        let counts: Vec<(String, i64)> = sqlx::query_as(
+            r"
+                SELECT target_id, COUNT(*) FROM logs
+                WHERE target_id IS NOT NULL AND event_type = 'group.user.ban'
+                GROUP BY target_id
+             ",
+        )
+        .fetch_all(&self.0)
+        .await
+        .map_err(Report::msg)?;
+
+        Ok(counts.into_iter().collect())
     }
 
     /// # Insert a log into the database
