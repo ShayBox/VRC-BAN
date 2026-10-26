@@ -36,20 +36,31 @@ pub struct StaffStats {
 
 /// Convert between `GroupAuditLogEntry` and `Log`
 /// `GroupAuditLogEntry` is not strict enough.
+///
+/// `VRChat` types every event on its own, so the fields all of them share are
+/// read back out of the entry's JSON instead of matching on each event type.
 impl TryFrom<GroupAuditLogEntry> for Log {
     type Error = color_eyre::eyre::Error;
 
-    fn try_from(log: GroupAuditLogEntry) -> Result<Self, Self::Error> {
+    fn try_from(entry: GroupAuditLogEntry) -> Result<Self, Self::Error> {
+        let entry = serde_json::to_value(entry)?;
+        let field = |name: &str| entry.get(name).and_then(Value::as_str).map(str::to_owned);
+
+        /* The JSON writes UTC as "Z" where the logs store an offset */
+        let created_at = field("created_at")
+            .map(|at| at.replace('Z', "+00:00"))
+            .ok_or_eyre("created_at")?;
+
         Ok(Self {
-            id: log.id.ok_or_eyre("id")?,
-            created_at: log.created_at.ok_or_eyre("created_at")?.to_rfc3339(),
-            group_id: log.group_id.ok_or_eyre("group_id")?,
-            actor_id: log.actor_id.ok_or_eyre("actor_id")?,
-            actor_display_name: log.actor_display_name,
-            target_id: log.target_id,
-            event_type: log.event_type.ok_or_eyre("event_type")?,
-            description: log.description.ok_or_eyre("description")?,
-            data: serde_json::to_value(&log.data)?,
+            id: field("id").ok_or_eyre("id")?,
+            created_at,
+            group_id: field("groupId").ok_or_eyre("groupId")?,
+            actor_id: field("actorId").ok_or_eyre("actorId")?,
+            actor_display_name: field("actorDisplayName"),
+            target_id: field("targetId"),
+            event_type: field("eventType").ok_or_eyre("eventType")?,
+            description: field("description").ok_or_eyre("description")?,
+            data: entry.get("data").cloned().unwrap_or(Value::Null),
         })
     }
 }

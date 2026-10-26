@@ -62,7 +62,6 @@ impl Data {
     #[cfg(feature = "discord")]
     pub async fn event_handler(
         &self,
-        _ctx: &Context,
         event: &FullEvent,
         _framework: FrameworkContext<'_, Self, Error>,
     ) -> Result<()> {

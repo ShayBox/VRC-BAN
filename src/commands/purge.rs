@@ -4,7 +4,12 @@ use std::{
 };
 
 use color_eyre::eyre::{bail, Error, Result};
-use poise::{serenity_prelude::*, Context, CreateReply};
+use poise::{
+    Context,
+    CreateReply,
+    ReplyHandle,
+    serenity_prelude::{CreateEmbed, Error as SerenityError, HttpError},
+};
 use vrchatapi::models::GroupMember;
 
 use crate::{vrchat::VRChat, Data};
@@ -101,6 +106,12 @@ const EDIT_DELAY: Duration = Duration::from_millis(1500);
 /// Maximum number of skipped users to list in the final embed.
 const MAX_LISTED: usize = 10;
 
+/// Edit round trips slower than this count as Discord holding them back.
+const SLOW_EDIT: Duration = Duration::from_millis(500);
+
+/// Number of extra times a progress edit is retried after Discord rate limits it.
+const MAX_EDIT_RETRIES: u32 = 3;
+
 /// Purge all the bans from the group.
 ///
 /// Skips users that `VRChat` ranks below `level`, users that have been banned
@@ -125,8 +136,10 @@ pub async fn purge(
         None => DEFAULT_BANS,
     };
 
-    let builder = CreateReply::default().embed(CreateEmbed::default().title("⏳"));
-    let reply = ctx.send(builder.clone()).await?;
+    /* Send a waiting message to edit with the progress. Every edit gets a fresh
+    CreateReply, reusing one piles the embeds on top of each other */
+    let waiting = CreateEmbed::default().title("⏳");
+    let reply = ctx.send(CreateReply::default().embed(waiting)).await?;
 
     let Data {
         config,
@@ -140,15 +153,12 @@ pub async fn purge(
 
     let mut progress = Progress::new(ban_list.len());
     let mut skipped_users = Vec::new();
+    let mut throttle = Throttle::new();
 
     /* Edit the waiting message with the total before starting */
-    reply
-        .edit(ctx, builder.clone().embed(progress.embed(None)))
-        .await?;
+    throttle.edit(ctx, &reply, |status| progress.embed(None, status)).await?;
 
     /* Unban everyone that's banned, hasn't struck out, and isn't a newcomer */
-    let mut last_edit = Instant::now();
-
     for ban in &ban_list {
         let name = display_name(ban);
         let strikes = strikes.get(&ban.user_id).copied().unwrap_or_default();
@@ -177,22 +187,24 @@ pub async fn purge(
             progress.skipped += 1;
         }
 
-        /* Edit the waiting message with the current progress */
-        if last_edit.elapsed() >= EDIT_DELAY {
+        /* Edit the waiting message with the current progress as often as the
+        Discord edit rate limit allows, saying how long the updates wait for it */
+        if throttle.ready() {
             let last = if reasons.is_empty() {
                 format!("{name} pardoned")
             } else {
                 format!("{name} skipped ({})", reasons.join(", "))
             };
 
-            reply
-                .edit(ctx, builder.clone().embed(progress.embed(Some(&last))))
-                .await?;
-            last_edit = Instant::now();
+            throttle.edit(ctx, &reply, |status| progress.embed(Some(&last), status)).await?;
+        } else {
+            throttle.queue();
         }
     }
 
-    /* Report what happened */
+    /* Report what happened, waiting for the rate limit so the report lands */
+    throttle.cooldown().await;
+
     let mut embed = CreateEmbed::default()
         .title("✅")
         .description(format!(
@@ -214,9 +226,151 @@ pub async fn purge(
         embed = embed.field("Skipped", skipped_users.join("\n"), false);
     }
 
-    reply.edit(ctx, builder.embed(embed)).await?;
+    throttle.edit(ctx, &reply, |_| embed.clone()).await?;
 
     Ok(())
+}
+
+/// Keeps progress edits inside Discord's message edit rate limit.
+///
+/// Updates that come too soon are held back so the purge keeps running at full
+/// speed, and the message says how long they waited, when the next one is
+/// allowed, and how long Discord held the edit requests themselves back.
+#[derive(Debug)]
+struct Throttle {
+    /// When the last edit went out
+    last:     Instant,
+    /// How many updates came due but had to wait for the edit rate limit
+    waiting:  usize,
+    /// When the oldest of those updates came due
+    due:      Option<Instant>,
+    /// How long the last edit request took, when Discord held it back
+    held:     Duration,
+    /// Whether Discord rejected the last edit with a rate limit
+    rejected: bool,
+}
+
+impl Throttle {
+    fn new() -> Self {
+        Self {
+            last:     Instant::now(),
+            waiting:  0,
+            due:      None,
+            held:     Duration::ZERO,
+            rejected: false,
+        }
+    }
+
+    /// Whether the rate limit allows another edit
+    fn ready(&self) -> bool {
+        self.last.elapsed() >= EDIT_DELAY
+    }
+
+    /// Mark an update as waiting on the rate limit, keeping the oldest one timed
+    fn queue(&mut self) {
+        self.waiting += 1;
+        self.due = Some(self.due.unwrap_or_else(Instant::now));
+    }
+
+    /// Wait out the edit cooldown, for the edits that have to get through
+    async fn cooldown(&self) {
+        let waiting = EDIT_DELAY.saturating_sub(self.last.elapsed());
+
+        if !waiting.is_zero() {
+            tokio::time::sleep(waiting).await;
+        }
+    }
+
+    /// What the message says about the rate limit, nothing when it never kicked in
+    fn status(&self) -> Option<String> {
+        let mut status = Vec::new();
+
+        if let Some(due) = self.due {
+            let updates = self.waiting;
+            let waited = seconds(due.elapsed());
+            let next = seconds(EDIT_DELAY);
+
+            status.push(format!("{updates} updates waited {waited}, next update in {next}"));
+        }
+
+        if self.rejected {
+            let retry = seconds(EDIT_DELAY);
+            status.push(format!("Discord rejected the edit, retried after {retry}"));
+        }
+
+        if !self.held.is_zero() {
+            let held = seconds(self.held);
+            status.push(format!("Discord held the edit for {held}"));
+        }
+
+        (!status.is_empty()).then(|| status.join(", "))
+    }
+
+    /// Edit the message, rebuilding the embed for every retry so the rate limit
+    /// shows up on it
+    async fn edit(
+        &mut self,
+        ctx: Context<'_, Data, Error>,
+        reply: &ReplyHandle<'_>,
+        embed: impl Fn(Option<&str>) -> CreateEmbed,
+    ) -> Result<()> {
+        let mut retries = 0;
+
+        loop {
+            let status = self.status();
+            let edited = self.send(ctx, reply, embed(status.as_deref())).await;
+
+            match edited {
+                Ok(()) => return Ok(()),
+                /* Discord doesn't always say how long a rejected edit waits for */
+                Err(error) if is_rate_limited(&error) && retries < MAX_EDIT_RETRIES => {
+                    retries += 1;
+                    self.rejected = true;
+                    tokio::time::sleep(EDIT_DELAY).await;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
+    /// Send an edit and record how long Discord took for it
+    async fn send(
+        &mut self,
+        ctx: Context<'_, Data, Error>,
+        reply: &ReplyHandle<'_>,
+        embed: CreateEmbed,
+    ) -> Result<(), Box<SerenityError>> {
+        let started = Instant::now();
+        let edited = reply.edit(ctx, CreateReply::default().embed(embed)).await;
+
+        /* Discord waits out most rate limits on its own, which shows up as a
+        slow edit instead of a rejected one */
+        let elapsed = started.elapsed();
+        self.last = Instant::now();
+        self.waiting = 0;
+        self.due = None;
+        self.rejected = false;
+        self.held = if elapsed >= SLOW_EDIT { elapsed } else { Duration::ZERO };
+
+        edited.map_err(Box::new)
+    }
+}
+
+/// Error code Discord gives rate limited requests (the HTTP 429 status)
+const RATE_LIMITED: isize = 429;
+
+/// Whether Discord rejected a request with a rate limit
+const fn is_rate_limited(error: &SerenityError) -> bool {
+    let SerenityError::Http(HttpError::UnsuccessfulRequest(response)) = error else {
+        return false;
+    };
+
+    response.error.code == RATE_LIMITED
+}
+
+/// Format a duration for the progress message
+fn seconds(duration: Duration) -> String {
+    format!("{:.1}s", duration.as_secs_f64())
 }
 
 /// How far along a purge is
@@ -246,15 +400,22 @@ impl Progress {
         self.total - self.done()
     }
 
-    /// Create the progress embed, optionally showing the last user handled
-    fn embed(self, last: Option<&str>) -> CreateEmbed {
-        CreateEmbed::default()
+    /// Create the progress embed, optionally showing the last user handled and
+    /// what the rate limit is holding back
+    fn embed(self, last: Option<&str>, status: Option<&str>) -> CreateEmbed {
+        let mut embed = CreateEmbed::default()
             .title("⏳")
             .description(format!("Purging bans… {} of {}", self.done(), self.total))
             .field("Purged", self.purged.to_string(), true)
             .field("Skipped", self.skipped.to_string(), true)
             .field("Remaining", self.remaining().to_string(), true)
-            .field("Last", last.unwrap_or("…"), false)
+            .field("Last", last.unwrap_or("…"), false);
+
+        if let Some(status) = status {
+            embed = embed.field("Rate Limited", status, false);
+        }
+
+        embed
     }
 }
 

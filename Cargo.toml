@@ -1,6 +1,6 @@
 [package]
 name = "vrc-ban"
-version = "0.7.3"
+version = "0.8.0"
 authors = ["Shayne Hartford <shaybox@shaybox.com>"]
 edition = "2024"
 
@@ -9,21 +9,21 @@ edition = "2024"
 [dependencies]
 color-eyre = { version = "0.6", default-features = false }
 derive-config = { version = "2", features = ["dirs", "toml"] }
-poise = { version = "0.6", features = ["collector"], optional = true }
+poise = { version = "0.7", features = ["collector"], optional = true }
 reqwest = { version = "0.13", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-sqlx = { version = "0.8", features = ["mysql"] }
+sqlx = { version = "0.9", features = ["mysql"] }
 time = { version = "0.3", features = ["serde"], optional = true }
-tokio = { version = "1", features = ["macros"] }
-totp = { version = "5", package = "totp-rs" }
+tokio = { version = "1", features = ["macros", "time"] }
+totp = { version = "6", package = "totp-rs" }
 vrchatapi = { version = "1", default-features = false }
 
 [features]
 default = ["discord", "rustls-tls"]
 discord = ["dep:poise", "dep:time"]
-native-tls = ["reqwest/native-tls", "sqlx/runtime-tokio-native-tls"]
-rustls-tls = ["reqwest/rustls", "sqlx/runtime-tokio-rustls"]
+native-tls = ["reqwest/native-tls", "sqlx/runtime-tokio", "sqlx/tls-native-tls"]
+rustls-tls = ["reqwest/rustls", "sqlx/runtime-tokio", "sqlx/tls-rustls"]
 
 [profile.dev]
 opt-level = 1

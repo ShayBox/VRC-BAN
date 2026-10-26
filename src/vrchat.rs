@@ -7,7 +7,7 @@ use reqwest::{
     StatusCode,
     Url,
 };
-use totp::{Algorithm, Secret, TOTP};
+use totp::{Algorithm, Builder, Secret};
 use vrchatapi::{
     apis::{
         authentication_api,
@@ -25,12 +25,12 @@ use vrchatapi::{
     },
     models::{
         BanGroupMemberRequest,
-        GetUser200Response,
+        CurrentUserLoginResponse,
         GroupMember,
         LimitedUserSearch,
-        RegisterUserAccount200Response,
         TwoFactorAuthCode,
         User,
+        UserResponse,
     },
 };
 
@@ -94,11 +94,17 @@ impl VRChat {
     pub async fn login_and_verify(&self, secret: &str) -> Result<()> {
         let current_user = authentication_api::get_current_user(&self.config).await?;
 
-        if let RegisterUserAccount200Response::RequiresTwoFactorAuth(_) = current_user {
+        if let CurrentUserLoginResponse::RequiresTwoFactorAuth(_) = current_user {
             // Obtain the current TOTP code using saved TOTP
-            let secret = Secret::Encoded(secret.to_owned()).to_bytes()?;
-            let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret)?;
-            let code = totp.generate_current()?;
+            let secret = Secret::try_from_base32(secret)?;
+            let totp = Builder::new()
+                .with_algorithm(Algorithm::SHA1)
+                .with_digits(6)
+                .with_skew(1)
+                .with_step_duration(30)
+                .with_secret(secret)
+                .build()?;
+            let code = totp.generate_current().to_string();
 
             // Verify the TOTP with VRChat
             let two_factor_auth_code = TwoFactorAuthCode::new(code);
@@ -258,8 +264,8 @@ impl VRChat {
         let response = retry_rate_limited(|| users_api::get_user(&self.config, user_id)).await?;
 
         match response {
-            GetUser200Response::User(user) => Ok(user),
-            GetUser200Response::CurrentUser(_) => Err(eyre!("Unexpected current-user response")),
+            UserResponse::User(user) => Ok(user),
+            UserResponse::CurrentUser(_) => Err(eyre!("Unexpected current-user response")),
         }
     }
 
@@ -276,6 +282,8 @@ impl VRChat {
             let new = users_api::search_users(
                 &self.config,
                 Some(search),
+                None,
+                None,
                 None,
                 Some(MAX),
                 Some(offset),

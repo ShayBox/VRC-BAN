@@ -35,8 +35,8 @@ async fn main() -> Result<()> {
         let framework = Framework::builder()
             .options(FrameworkOptions {
                 commands: vec![cheers(), pardon(), purge(), help()],
-                event_handler: |ctx, event, framework, data| {
-                    Box::pin(data.event_handler(ctx, event, framework))
+                event_handler: |framework, event| {
+                    Box::pin(framework.user_data.event_handler(event, framework))
                 },
                 ..Default::default()
             })
