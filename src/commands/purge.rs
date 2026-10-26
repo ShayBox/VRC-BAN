@@ -1,27 +1,99 @@
-use std::time::{Duration, Instant};
+use std::{
+    fmt::{self, Display, Formatter},
+    time::{Duration, Instant},
+};
 
-use color_eyre::{eyre::Error, Result};
+use color_eyre::eyre::{bail, Error, Result};
 use poise::{serenity_prelude::*, Context, CreateReply};
 use vrchatapi::models::GroupMember;
 
 use crate::{vrchat::VRChat, Data};
 
-/// Users banned this many times are left banned (three strike rule).
-const MAX_STRIKES: i64 = 3;
+/// Users banned this many times are left banned unless the `bans` option says
+/// otherwise (three strike rule).
+const DEFAULT_BANS: i64 = 3;
 
-/// Trust tags for `User` and above, anyone below that is left banned.
-/// The `VRChat` trust tags are offset by one, `system_trust_known` is `User`.
-const USER_TAGS: [&str; 3] = [
-    "system_trust_known",   // User
-    "system_trust_trusted", // Known User
-    "system_trust_veteran", // Trusted User
-];
-
-/// Trust tag of a `New User`, visitors have no trust tag at all.
-const NEW_USER_TAG: &str = "system_trust_basic";
+/// Users ranked below this are left banned unless the `level` option says
+/// otherwise.
+const DEFAULT_LEVEL: Rank = Rank::User;
 
 /// Tag of a nuisance, they're left banned.
 const NUISANCE_TAG: &str = "system_troll";
+
+/// `VRChat` trust ranks, ordered from lowest to highest.
+///
+/// The `VRChat` trust tags are offset by one, `system_trust_known` is `User`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, poise::ChoiceParameter)]
+pub enum Rank {
+    /// Visitors have no trust tag at all
+    Visitor,
+    /// A `New User`, tagged with `system_trust_basic`
+    #[name = "New User"]
+    #[name = "NewUser"]
+    NewUser,
+    /// A `User`, tagged with `system_trust_known`
+    User,
+    /// A `Known User`, tagged with `system_trust_trusted`
+    #[name = "Known User"]
+    #[name = "KnownUser"]
+    KnownUser,
+    /// A `Trusted User`, tagged with `system_trust_veteran`
+    #[name = "Trusted User"]
+    #[name = "TrustedUser"]
+    TrustedUser,
+}
+
+impl Rank {
+    /// Every rank, ordered from lowest to highest
+    const ALL: [Self; 5] = [
+        Self::Visitor,
+        Self::NewUser,
+        Self::User,
+        Self::KnownUser,
+        Self::TrustedUser,
+    ];
+
+    /// The trust tag that marks this rank, visitors have no tag of their own
+    const fn tag(self) -> Option<&'static str> {
+        match self {
+            Self::Visitor => None,
+            Self::NewUser => Some("system_trust_basic"),
+            Self::User => Some("system_trust_known"),
+            Self::KnownUser => Some("system_trust_trusted"),
+            Self::TrustedUser => Some("system_trust_veteran"),
+        }
+    }
+
+    /// The highest rank that one of the given profile tags belongs to
+    fn from_tags(tags: &[String]) -> Self {
+        Self::ALL
+            .iter()
+            .rev()
+            .copied()
+            .find(|rank| {
+                rank.tag()
+                    .is_some_and(|tag| tags.iter().any(|other| other == tag))
+            })
+            .unwrap_or(Self::Visitor)
+    }
+
+    /// The rank name as it appears in `VRChat`
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Visitor => "Visitor",
+            Self::NewUser => "New User",
+            Self::User => "User",
+            Self::KnownUser => "Known User",
+            Self::TrustedUser => "Trusted User",
+        }
+    }
+}
+
+impl Display for Rank {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.label())
+    }
+}
 
 /// Minimum delay between progress edits to stay under the Discord rate limit.
 const EDIT_DELAY: Duration = Duration::from_millis(1500);
@@ -31,15 +103,28 @@ const MAX_LISTED: usize = 10;
 
 /// Purge all the bans from the group.
 ///
-/// Skips users that have been banned `MAX_STRIKES` or more times, and users
-/// that `VRChat` ranks below `User` (visitors, new users, and nuisances).
+/// Skips users that `VRChat` ranks below `level`, users that have been banned
+/// `bans` times or more, and nuisances. Both options fall back to the usual
+/// settings (a `User` rank and 3 bans) when they're left out.
 #[poise::command(
     slash_command,
     guild_only,
     required_permissions = "BAN_MEMBERS",
     required_bot_permissions = "BAN_MEMBERS"
 )]
-pub async fn purge(ctx: Context<'_, Data, Error>) -> Result<()> {
+pub async fn purge(
+    ctx: Context<'_, Data, Error>,
+    #[description = "Leave users below this trust rank banned (default: User)"] level: Option<Rank>,
+    #[description = "Leave users banned this many times or more (default: 3)"] bans: Option<i64>,
+) -> Result<()> {
+    /* Fall back to the usual settings when the options are omitted */
+    let level = level.unwrap_or(DEFAULT_LEVEL);
+    let max_bans = match bans {
+        Some(bans) if bans < 1 => bail!("The ban count must be at least 1"),
+        Some(bans) => bans,
+        None => DEFAULT_BANS,
+    };
+
     let builder = CreateReply::default().embed(CreateEmbed::default().title("⏳"));
     let reply = ctx.send(builder.clone()).await?;
 
@@ -50,10 +135,10 @@ pub async fn purge(ctx: Context<'_, Data, Error>) -> Result<()> {
     } = ctx.data();
 
     /* Get the bans and how many times each user has been banned */
-    let bans = vrchat.get_group_bans(&config.vrc_group_id).await?;
+    let ban_list = vrchat.get_group_bans(&config.vrc_group_id).await?;
     let strikes = logsdb.get_ban_counts().await?;
 
-    let mut progress = Progress::new(bans.len());
+    let mut progress = Progress::new(ban_list.len());
     let mut skipped_users = Vec::new();
 
     /* Edit the waiting message with the total before starting */
@@ -64,26 +149,21 @@ pub async fn purge(ctx: Context<'_, Data, Error>) -> Result<()> {
     /* Unban everyone that's banned, hasn't struck out, and isn't a newcomer */
     let mut last_edit = Instant::now();
 
-    for ban in &bans {
+    for ban in &ban_list {
         let name = display_name(ban);
         let strikes = strikes.get(&ban.user_id).copied().unwrap_or_default();
         let tags = get_tags(vrchat, &name, &ban.user_id).await;
+        let rank = Rank::from_tags(&tags);
 
         /* Collect the reasons a user is left banned */
         let mut reasons = Vec::new();
         if tags.iter().any(|tag| tag == NUISANCE_TAG) {
             reasons.push(String::from("Nuisance"));
-        } else if !tags.iter().any(|tag| USER_TAGS.contains(&tag.as_str())) {
-            let rank = if tags.iter().any(|tag| tag == NEW_USER_TAG) {
-                "New User"
-            } else {
-                "Visitor"
-            };
-
-            reasons.push(String::from(rank));
+        } else if rank < level {
+            reasons.push(rank.to_string());
         }
 
-        if strikes >= MAX_STRIKES {
+        if strikes >= max_bans {
             reasons.push(format!("{strikes} bans"));
         }
 
@@ -116,7 +196,7 @@ pub async fn purge(ctx: Context<'_, Data, Error>) -> Result<()> {
     let mut embed = CreateEmbed::default()
         .title("✅")
         .description(format!(
-            "Purged {} of {} bans",
+            "Purged {} of {} bans, leaving anyone below {level} or with {max_bans}+ bans banned",
             progress.purged, progress.total
         ))
         .field("Purged", progress.purged.to_string(), true)
@@ -131,11 +211,7 @@ pub async fn purge(ctx: Context<'_, Data, Error>) -> Result<()> {
             skipped_users.push(format!("…and {extra} more"));
         }
 
-        embed = embed.field(
-            format!("Skipped ({MAX_STRIKES}+ bans or below User)"),
-            skipped_users.join("\n"),
-            false,
-        );
+        embed = embed.field("Skipped", skipped_users.join("\n"), false);
     }
 
     reply.edit(ctx, builder.embed(embed)).await?;
